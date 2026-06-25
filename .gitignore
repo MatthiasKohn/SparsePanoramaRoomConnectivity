@@ -18,6 +18,12 @@ env/
 .DS_Store
 Thumbs.db
 
+# Local agent / research-collaboration context
+AGENTS.md
+ContextMDs/
+.agents/
+.codex/
+
 # Local environment / secrets
 .env
 .env.*
