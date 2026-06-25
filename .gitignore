@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# Large datasets and generated training data
+data/
+data_*/
+*_data/
+data_doorpairs/
+
+# Experiment outputs
+results/
+logs/
+runs/
+wandb/
+tensorboard/
+
+# Model checkpoints / weights
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+
+# Generated depth / cache artifacts
+depth/
+depths/
+*_depth/
+*.npy
+*.npz
+
+# Temporary files
+tmp/
+temp/
+*.tmp
