@@ -8,16 +8,22 @@
 set -e
 
 ROOMCONN_CONDA_ENV="${ROOMCONN_CONDA_ENV:-roomconn}"
+ROOMCONN_CONDA_ENV_PATH="${ROOMCONN_CONDA_ENV_PATH:-$HOME/.conda/envs/$ROOMCONN_CONDA_ENV}"
 
-if command -v conda >/dev/null 2>&1; then
-  eval "$(conda shell.bash hook)"
-  conda activate "$ROOMCONN_CONDA_ENV"
+# In SLURM batch jobs on bwUniCluster, the `conda` command can exist but fail with
+# "ModuleNotFoundError: No module named 'conda'" on some nodes. Directly sourcing
+# the environment's activate script avoids calling conda at all and is more robust.
+if [ -f "$ROOMCONN_CONDA_ENV_PATH/bin/activate" ]; then
+  source "$ROOMCONN_CONDA_ENV_PATH/bin/activate"
 elif [ -d "$ROOMCONN_CONDA_ENV" ] && [ -f "$ROOMCONN_CONDA_ENV/bin/activate" ]; then
   source "$ROOMCONN_CONDA_ENV/bin/activate"
+elif command -v conda >/dev/null 2>&1; then
+  eval "$(conda shell.bash hook)"
+  conda activate "$ROOMCONN_CONDA_ENV"
 else
   echo "ERROR: Could not activate conda env: $ROOMCONN_CONDA_ENV" >&2
-  echo "Try loading miniforge first, e.g. 'module load devel/miniforge'." >&2
-  echo "Or set ROOMCONN_CONDA_ENV=/full/path/to/env." >&2
+  echo "Tried env path: $ROOMCONN_CONDA_ENV_PATH" >&2
+  echo "Set ROOMCONN_CONDA_ENV_PATH=/full/path/to/env if your env lives elsewhere." >&2
   exit 1
 fi
 
