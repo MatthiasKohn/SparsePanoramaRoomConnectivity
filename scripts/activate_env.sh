@@ -10,6 +10,21 @@ set -e
 ROOMCONN_CONDA_ENV="${ROOMCONN_CONDA_ENV:-roomconn}"
 ROOMCONN_CONDA_ENV_PATH="${ROOMCONN_CONDA_ENV_PATH:-$HOME/.conda/envs/$ROOMCONN_CONDA_ENV}"
 
+_roomconn_fail() {
+  echo "ERROR: Could not activate conda env: $ROOMCONN_CONDA_ENV" >&2
+  echo "Tried env path: $ROOMCONN_CONDA_ENV_PATH" >&2
+  echo "Find the real path with: module load devel/miniforge && conda info --envs" >&2
+  echo "Then set: export ROOMCONN_CONDA_ENV_PATH=/full/path/to/roomconn" >&2
+
+  # If this file was sourced in an interactive shell, `exit` would close the SSH
+  # session. Return when sourced; exit only when executed as a standalone script.
+  if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    return 1
+  else
+    exit 1
+  fi
+}
+
 # In SLURM batch jobs on bwUniCluster, the `conda` command can exist but fail with
 # "ModuleNotFoundError: No module named 'conda'" on some nodes. Directly sourcing
 # the environment's activate script avoids calling conda at all and is more robust.
@@ -17,14 +32,11 @@ if [ -f "$ROOMCONN_CONDA_ENV_PATH/bin/activate" ]; then
   source "$ROOMCONN_CONDA_ENV_PATH/bin/activate"
 elif [ -d "$ROOMCONN_CONDA_ENV" ] && [ -f "$ROOMCONN_CONDA_ENV/bin/activate" ]; then
   source "$ROOMCONN_CONDA_ENV/bin/activate"
-elif command -v conda >/dev/null 2>&1; then
+elif [ "${ROOMCONN_ALLOW_CONDA_FALLBACK:-0}" = "1" ] && command -v conda >/dev/null 2>&1; then
   eval "$(conda shell.bash hook)"
   conda activate "$ROOMCONN_CONDA_ENV"
 else
-  echo "ERROR: Could not activate conda env: $ROOMCONN_CONDA_ENV" >&2
-  echo "Tried env path: $ROOMCONN_CONDA_ENV_PATH" >&2
-  echo "Set ROOMCONN_CONDA_ENV_PATH=/full/path/to/env if your env lives elsewhere." >&2
-  exit 1
+  _roomconn_fail
 fi
 
 export PYTHONUNBUFFERED=1
