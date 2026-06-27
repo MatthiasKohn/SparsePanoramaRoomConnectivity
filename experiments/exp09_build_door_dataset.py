@@ -24,6 +24,8 @@ def main():
     ap.add_argument("--fov", type=float, default=70.0)
     ap.add_argument("--append", action="store_true",
                     help="add to an existing dataset instead of rebuilding it")
+    ap.add_argument("--max_homes", type=int, default=None,
+                    help="cap number of homes (for data-scaling experiments)")
     a = ap.parse_args()
     import shutil
     if Path(a.out).exists() and not a.append:
@@ -31,6 +33,8 @@ def main():
         shutil.rmtree(a.out)
     root = Path(a.zind_root)
     jsons = sorted(root.glob("**/zind_data.json"))
+    if a.max_homes:
+        jsons = jsons[:a.max_homes]
     print(f"found {len(jsons)} homes under {root}")
     total = 0
     for jp in jsons:

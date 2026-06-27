@@ -118,6 +118,7 @@ def main():
     ap.add_argument("--ckpt", default="door_encoder.pt")
     ap.add_argument("--max", type=int, default=9999)
     ap.add_argument("--thr", type=float, default=None)
+    ap.add_argument("--only", help="file with home names (e.g. val_homes.txt) to restrict to")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
 
@@ -127,6 +128,10 @@ def main():
         homes = [Path(a.home)]
     else:
         ap.error("give --home or --root")
+    if a.only:
+        keep = set(Path(a.only).read_text().split())
+        homes = [h for h in homes if h.name in keep]
+        print(f"restricted to {len(homes)} held-out homes from {a.only}")
 
     embed = None
     if not a.selftest:

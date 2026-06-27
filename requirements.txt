@@ -1,0 +1,12 @@
+# core
+numpy
+scipy
+opencv-python
+matplotlib
+pillow
+tqdm
+
+# deep models (training + door detection); install the torch build matching your CUDA
+torch
+torchvision
+transformers>=4.40

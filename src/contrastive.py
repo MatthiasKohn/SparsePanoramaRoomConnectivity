@@ -58,11 +58,11 @@ class DoorPairDataset:
     """Reads pairs.csv (+ crops/) -> (aug(crop_a), aug(crop_b)) tensors. Two
     different augmentations stand in for extra viewpoint variation. NO horizontal
     flip (would swap door left/right, which carries the which-side cue)."""
-    def __init__(self, root, img=224, train=True):
+    def __init__(self, root, img=224, train=True, rows=None):
         import csv
         from pathlib import Path
         self.root = Path(root)
-        self.rows = list(csv.DictReader(open(self.root / "pairs.csv")))
+        self.rows = rows if rows is not None else list(csv.DictReader(open(self.root / "pairs.csv")))
         from torchvision import transforms as T
         base = [T.ToTensor(),
                 T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])]
@@ -111,7 +111,10 @@ def load_embedder(ckpt, device="cuda", img=224, backbone="dinov2_vits14"):
     import torch
     from torchvision import transforms as T
     enc = build_encoder(device, backbone=backbone)
-    enc.load_state_dict(torch.load(ckpt, map_location=device)); enc.eval()
+    sd = torch.load(ckpt, map_location=device)
+    if isinstance(sd, dict) and "model" in sd:        # full training checkpoint
+        sd = sd["model"]
+    enc.load_state_dict(sd); enc.eval()
     tf = T.Compose([T.ToPILImage(), T.Resize((img, img)), T.ToTensor(),
                     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     def embed(crop_rgb):

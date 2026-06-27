@@ -10,9 +10,8 @@ import numpy as np
 import cv2
 
 
-def e2p(equi, yaw_deg, pitch_deg=0.0, fov_deg=90.0, out_hw=(720, 720)):
-    """Sample a perspective view (camera looks toward +Z rotated by yaw/pitch)."""
-    H, W = equi.shape[:2]
+def e2p_uvmap(H, W, yaw_deg, pitch_deg=0.0, fov_deg=90.0, out_hw=(720, 720)):
+    """Return the (u, v) sampling maps that take equirect (H,W) -> perspective out_hw."""
     Ho, Wo = out_hw
     f = 0.5 * Wo / np.tan(np.radians(fov_deg) / 2)
     xs, ys = np.meshgrid(np.arange(Wo), np.arange(Ho))
@@ -27,10 +26,16 @@ def e2p(equi, yaw_deg, pitch_deg=0.0, fov_deg=90.0, out_hw=(720, 720)):
     vec = vec @ (Ry @ Rx).T
     lon = np.arctan2(vec[..., 0], vec[..., 2])
     lat = np.arcsin(np.clip(vec[..., 1], -1, 1))
-    u = ((lon / (2 * np.pi)) + 0.5) * W
-    v = (0.5 - lat / np.pi) * H
-    return cv2.remap(equi, u.astype(np.float32), v.astype(np.float32),
-                     cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)
+    u = (((lon / (2 * np.pi)) + 0.5) * W).astype(np.float32)
+    v = ((0.5 - lat / np.pi) * H).astype(np.float32)
+    return u, v
+
+
+def e2p(equi, yaw_deg, pitch_deg=0.0, fov_deg=90.0, out_hw=(720, 720)):
+    """Sample a perspective view (camera looks toward +Z rotated by yaw/pitch)."""
+    H, W = equi.shape[:2]
+    u, v = e2p_uvmap(H, W, yaw_deg, pitch_deg, fov_deg, out_hw)
+    return cv2.remap(equi, u, v, cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)
 
 
 def crop_x_to_azimuth(x_in_crop, yaw_deg, fov_deg, crop_w):
