@@ -7,11 +7,27 @@ Pipeline:  `exp09` build dataset → `exp10` train → `exp12` eval on held-out 
 
 ## 0. Environment (once)
 ```
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt        # install the torch build matching the node's CUDA
+conda activate /home/ul/ul_student/ul_fnm03/.conda/envs/venv
+pip install -r requirements.txt
 ```
-DINOv2 weights download once via torch.hub on first run (needs internet on the node;
-if compute nodes are offline, run one tiny job on a login node first to cache them).
+If the cluster needs a specific CUDA-enabled PyTorch wheel, install that first with
+the matching PyTorch command, then run `pip install -r requirements.txt`.
+
+The SLURM scripts source `scripts/activate_env.sh`, which defaults to:
+
+```
+/home/ul/ul_student/ul_fnm03/.conda/envs/venv
+```
+
+To use a different env without editing the scripts:
+
+```
+export ROOMCONN_CONDA_ENV=/path/to/other/env
+```
+
+DINOv2 weights download once via torch.hub on first run. If compute nodes are offline,
+run one tiny login/precompute job first to cache them. The scripts set `TORCH_HOME`
+and `HF_HOME` to cache locations under `$HOME/.cache` unless you override them.
 
 ## 1. Build the door-pair dataset (CPU)
 ```

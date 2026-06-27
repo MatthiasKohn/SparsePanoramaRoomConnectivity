@@ -1,12 +1,24 @@
-# core
+# Core scientific stack
 numpy
 scipy
-opencv-python
 matplotlib
 pillow
 tqdm
 
-# deep models (training + door detection); install the torch build matching your CUDA
+# OpenCV without GUI dependencies; preferred on clusters/headless nodes.
+opencv-python-headless
+
+# Deep learning stack.
+# If your cluster requires a specific CUDA wheel, install torch/torchvision first
+# with the matching PyTorch command, then run:
+#   pip install -r requirements.txt
 torch
 torchvision
+
+# Semantic door detector / HuggingFace models.
 transformers>=4.40
+huggingface-hub
+safetensors
+
+# Small utilities used by model/download stacks.
+requests

@@ -13,7 +13,7 @@ set -e
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs runs
 # module load devel/cuda/12.4         # <-- load CUDA if your env needs it
-# source .venv/bin/activate            # or: conda activate <env>
+source scripts/activate_env.sh
 
 python experiments/exp10_train_contrastive.py \
     --data data_doorpairs \

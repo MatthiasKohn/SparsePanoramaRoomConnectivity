@@ -10,7 +10,7 @@
 set -e
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
-# source .venv/bin/activate            # or: conda activate <env>
+source scripts/activate_env.sh
 
 ZIND_ROOT=${1:?"give the ZInD root dir as arg 1"}
 python experiments/exp09_build_door_dataset.py \

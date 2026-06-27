@@ -5,6 +5,10 @@
 #
 #   bash scripts/scaling_curve.sh /path/to/zind/full_dataset
 set -e
+cd "$(dirname "$0")/.."
+source scripts/activate_env.sh
+mkdir -p runs
+
 ZIND_ROOT=${1:?"give ZInD root dir"}
 SIZES="50 150 400 9999"          # 9999 = all available homes
 EPOCHS=30
