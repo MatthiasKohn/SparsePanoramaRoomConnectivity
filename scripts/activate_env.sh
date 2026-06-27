@@ -26,12 +26,19 @@ _roomconn_fail() {
 }
 
 # In SLURM batch jobs on bwUniCluster, the `conda` command can exist but fail with
-# "ModuleNotFoundError: No module named 'conda'" on some nodes. Directly sourcing
-# the environment's activate script avoids calling conda at all and is more robust.
-if [ -f "$ROOMCONN_CONDA_ENV_PATH/bin/activate" ]; then
-  source "$ROOMCONN_CONDA_ENV_PATH/bin/activate"
-elif [ -d "$ROOMCONN_CONDA_ENV" ] && [ -f "$ROOMCONN_CONDA_ENV/bin/activate" ]; then
-  source "$ROOMCONN_CONDA_ENV/bin/activate"
+# "ModuleNotFoundError: No module named 'conda'" on some nodes. Also, conda envs do
+# not always provide a venv-style `$ENV/bin/activate`. The most robust path for our
+# jobs is therefore to select the env's Python directly via PATH.
+if [ -x "$ROOMCONN_CONDA_ENV_PATH/bin/python" ]; then
+  export CONDA_PREFIX="$ROOMCONN_CONDA_ENV_PATH"
+  export CONDA_DEFAULT_ENV="$ROOMCONN_CONDA_ENV"
+  export PATH="$ROOMCONN_CONDA_ENV_PATH/bin:$PATH"
+  unset PYTHONHOME
+elif [ -d "$ROOMCONN_CONDA_ENV" ] && [ -x "$ROOMCONN_CONDA_ENV/bin/python" ]; then
+  export CONDA_PREFIX="$ROOMCONN_CONDA_ENV"
+  export CONDA_DEFAULT_ENV="$(basename "$ROOMCONN_CONDA_ENV")"
+  export PATH="$ROOMCONN_CONDA_ENV/bin:$PATH"
+  unset PYTHONHOME
 elif [ "${ROOMCONN_ALLOW_CONDA_FALLBACK:-0}" = "1" ] && command -v conda >/dev/null 2>&1; then
   eval "$(conda shell.bash hook)"
   conda activate "$ROOMCONN_CONDA_ENV"
