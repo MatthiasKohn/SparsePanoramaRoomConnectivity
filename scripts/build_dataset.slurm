@@ -10,6 +10,8 @@
 set -e
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
+# Ensure conda is available in non-interactive SLURM shells on bwUniCluster.
+module load devel/miniforge
 source scripts/activate_env.sh
 
 ZIND_ROOT=${1:?"give the ZInD root dir as arg 1"}

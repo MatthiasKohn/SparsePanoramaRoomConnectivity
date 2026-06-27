@@ -6,6 +6,8 @@
 #   bash scripts/scaling_curve.sh /path/to/zind/full_dataset
 set -e
 cd "$(dirname "$0")/.."
+# Ensure conda is available in non-interactive SLURM shells on bwUniCluster.
+module load devel/miniforge 2>/dev/null || true
 source scripts/activate_env.sh
 mkdir -p runs
 

@@ -7,16 +7,41 @@ Pipeline:  `exp09` build dataset → `exp10` train → `exp12` eval on held-out 
 
 ## 0. Environment (once)
 ```
-conda activate /home/ul/ul_student/ul_fnm03/.conda/envs/venv
+module load devel/miniforge
+conda activate roomconn
 pip install -r requirements.txt
 ```
-If the cluster needs a specific CUDA-enabled PyTorch wheel, install that first with
-the matching PyTorch command, then run `pip install -r requirements.txt`.
+PyTorch is installed separately because the correct CUDA build is cluster-specific.
+Current verified setup on an A100 node:
+
+```
+conda activate roomconn
+python - <<'PY'
+import torch
+print(torch.__version__)
+print(torch.cuda.is_available())
+print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "no cuda")
+PY
+```
+
+Expected/current:
+
+```
+2.12.1+cu130
+True
+NVIDIA A100-PCIE-40GB
+```
+
+Then install the remaining project dependencies:
+
+```
+pip install -r requirements.txt
+```
 
 The SLURM scripts source `scripts/activate_env.sh`, which defaults to:
 
 ```
-/home/ul/ul_student/ul_fnm03/.conda/envs/venv
+roomconn
 ```
 
 To use a different env without editing the scripts:

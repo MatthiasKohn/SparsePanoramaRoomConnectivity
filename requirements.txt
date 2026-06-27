@@ -8,12 +8,14 @@ tqdm
 # OpenCV without GUI dependencies; preferred on clusters/headless nodes.
 opencv-python-headless
 
-# Deep learning stack.
-# If your cluster requires a specific CUDA wheel, install torch/torchvision first
-# with the matching PyTorch command, then run:
+# PyTorch is intentionally NOT pinned here.
+# Install the CUDA build separately on the cluster, then install this file:
+#   pip install torch torchvision --index-url <matching PyTorch CUDA wheel index>
 #   pip install -r requirements.txt
-torch
-torchvision
+#
+# Current verified bwUniCluster env:
+#   conda activate roomconn
+#   torch 2.12.1+cu130, cuda_available=True on NVIDIA A100-PCIE-40GB
 
 # Semantic door detector / HuggingFace models.
 transformers>=4.40

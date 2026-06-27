@@ -3,27 +3,21 @@
 #
 # Default: Matthias' bwUniCluster conda environment.
 # Override without editing scripts:
-#   export ROOMCONN_CONDA_ENV=/path/to/other/env
+#   export ROOMCONN_CONDA_ENV=other_env_name_or_/path/to/env
 
 set -e
 
-ROOMCONN_CONDA_ENV="${ROOMCONN_CONDA_ENV:-/home/ul/ul_student/ul_fnm03/.conda/envs/venv}"
+ROOMCONN_CONDA_ENV="${ROOMCONN_CONDA_ENV:-roomconn}"
 
-if [ -d "$ROOMCONN_CONDA_ENV" ]; then
-  # Prefer conda activation when available, because it also restores conda-specific
-  # environment variables. Fall back to the env's activate script for batch shells.
-  if command -v conda >/dev/null 2>&1; then
-    eval "$(conda shell.bash hook)"
-    conda activate "$ROOMCONN_CONDA_ENV"
-  elif [ -f "$ROOMCONN_CONDA_ENV/bin/activate" ]; then
-    source "$ROOMCONN_CONDA_ENV/bin/activate"
-  else
-    echo "ERROR: Found env directory but no activate script: $ROOMCONN_CONDA_ENV" >&2
-    exit 1
-  fi
+if command -v conda >/dev/null 2>&1; then
+  eval "$(conda shell.bash hook)"
+  conda activate "$ROOMCONN_CONDA_ENV"
+elif [ -d "$ROOMCONN_CONDA_ENV" ] && [ -f "$ROOMCONN_CONDA_ENV/bin/activate" ]; then
+  source "$ROOMCONN_CONDA_ENV/bin/activate"
 else
-  echo "ERROR: Conda env not found: $ROOMCONN_CONDA_ENV" >&2
-  echo "Set ROOMCONN_CONDA_ENV=/path/to/env if your env lives elsewhere." >&2
+  echo "ERROR: Could not activate conda env: $ROOMCONN_CONDA_ENV" >&2
+  echo "Try loading miniforge first, e.g. 'module load devel/miniforge'." >&2
+  echo "Or set ROOMCONN_CONDA_ENV=/full/path/to/env." >&2
   exit 1
 fi
 

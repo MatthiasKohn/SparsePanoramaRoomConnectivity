@@ -12,6 +12,8 @@
 set -e
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs runs
+# Ensure conda is available in non-interactive SLURM shells on bwUniCluster.
+module load devel/miniforge
 # module load devel/cuda/12.4         # <-- load CUDA if your env needs it
 source scripts/activate_env.sh
 
