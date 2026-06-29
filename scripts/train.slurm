@@ -19,7 +19,7 @@ source scripts/activate_env.sh
 
 python experiments/exp10_train_contrastive.py \
     --data data_doorpairs \
-    --out  runs/full \
+    --out  runs/full_ft \
     --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 \
     --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
     --val_frac 0.15 --seed 0 \

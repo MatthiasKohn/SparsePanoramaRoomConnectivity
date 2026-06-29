@@ -71,6 +71,7 @@ def evaluate_retrieval(enc, data, val_rows, device, img=224, max_n=2000):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
+    ap.add_argument("--train_full", action="store_true")
     ap.add_argument("--out", default="runs/exp")
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--bs", type=int, default=128)
