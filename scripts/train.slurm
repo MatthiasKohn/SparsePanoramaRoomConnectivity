@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=door_train
-#SBATCH --partition=gpu_4             # <-- bwUniCluster GPU partition (adjust: gpu_4, gpu_8, gpu_4_a100 ...)
+#SBATCH --partition=gpu_a100_il             # <-- bwUniCluster GPU partition (adjust: gpu_4, gpu_8, gpu_4_a100 ...)
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=12:00:00
+#SBATCH --time=2:00:00
 #SBATCH --output=logs/%x_%j.out
 # Train the contrastive cross-view door embedding.
 # Re-submittable: --resume continues from runs/full/last.pt after a timeout.
-# Usage:  sbatch scripts/train.slurm
+
 set -e
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs runs
