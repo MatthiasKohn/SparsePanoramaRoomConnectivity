@@ -23,7 +23,6 @@ python experiments/exp10_train_contrastive.py \
     --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 \
     --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
     --val_frac 0.15 --seed 0 \
-    --resume \
     --unfreeze        # uncomment to fine-tune the DINOv2 backbone (needs more GPU mem)
 
 # After training, evaluate connectivity on the HELD-OUT homes the run reserved:
