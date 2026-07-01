@@ -29,6 +29,7 @@ python experiments/exp23_heldout_eval.py \
     --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
     --only runs/full/val_homes.txt \
     --ckpt runs/full/best.pt \
+    --mutual \
     --max 200
 
 # After training, evaluate connectivity on the HELD-OUT homes the run reserved:
