@@ -39,6 +39,8 @@ done
 python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_assign.csv
 
 
+
+
 # After training, evaluate connectivity on the HELD-OUT homes the run reserved:
 #   python experiments/exp12_connectivity_graph.py \
 #       --root <ZIND_ROOT> --only runs/full/val_homes.txt --ckpt runs/full/best.pt
