@@ -85,6 +85,8 @@ def main():
     ap.add_argument("--backbone", default="dinov2_vits14")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--hard_neg", action="store_true", help="same-home hard-negative batching")
+    ap.add_argument("--homes_per_batch", type=int, default=8)
     a = ap.parse_args()
 
     random.seed(a.seed); np.random.seed(a.seed)
@@ -102,8 +104,15 @@ def main():
           f"val {len(va)} ({len(val_scenes)} sc) -> held-out homes in {out/'val_homes.txt'}")
 
     ds = contrastive.DoorPairDataset(a.data, img=a.img, train=True, rows=tr)
-    dl = DataLoader(ds, batch_size=a.bs, shuffle=True, drop_last=True,
-                    num_workers=a.workers, pin_memory=True)
+    if a.hard_neg:
+        from src.hard_neg import HomeBatchSampler
+        sampler = HomeBatchSampler(tr, a.bs, a.homes_per_batch, seed=a.seed)
+        dl = DataLoader(ds, batch_sampler=sampler, num_workers=a.workers, pin_memory=True)
+        print(f"[hard-neg] same-home batching: {len(sampler)} batches, "
+              f"{a.homes_per_batch} homes/batch -> in-batch negatives include same-building doors")
+    else:
+        dl = DataLoader(ds, batch_size=a.bs, shuffle=True, drop_last=True,
+                        num_workers=a.workers, pin_memory=True)
     enc = contrastive.build_encoder(dev, backbone=a.backbone, unfreeze=a.unfreeze)
     opt = torch.optim.AdamW([p for p in enc.parameters() if p.requires_grad], lr=a.lr, weight_decay=a.wd)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
