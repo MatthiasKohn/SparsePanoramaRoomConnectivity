@@ -17,13 +17,19 @@ module load devel/miniforge
 # module load devel/cuda/12.4         # <-- load CUDA if your env needs it
 source scripts/activate_env.sh
 
-python experiments/exp10_train_contrastive.py \
-    --data data_doorpairs \
-    --out  runs/full_ft \
-    --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 \
-    --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
-    --val_frac 0.15 --seed 0 \
-    --unfreeze        # uncomment to fine-tune the DINOv2 backbone (needs more GPU mem)
+#python experiments/exp10_train_contrastive.py \
+#    --data data_doorpairs \
+#    --out  runs/full_ft \
+#    --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 \
+#    --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
+#    --val_frac 0.15 --seed 0 \
+#    --unfreeze        # uncomment to fine-tune the DINOv2 backbone (needs more GPU mem)
+
+python experiments/exp23_heldout_eval.py \
+    --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
+    --only runs/full/val_homes.txt \
+    --ckpt runs/full/best.pt \
+    --max 200
 
 # After training, evaluate connectivity on the HELD-OUT homes the run reserved:
 #   python experiments/exp12_connectivity_graph.py \

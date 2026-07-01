@@ -67,7 +67,7 @@ def main():
         input_dir, output_dir, pattern = p["input_dir"], p["output_dir"], p["pattern"]
     elif a.input_dir and a.output_dir:
         input_dir = Path(a.input_dir); output_dir = Path(a.output_dir)
-        pattern = a.pattern  or "*.jpg"
+        pattern = a.pattern  or "*.png"
     else:
         ap.error("give --dataset OR (--input_dir and --output_dir)")
 

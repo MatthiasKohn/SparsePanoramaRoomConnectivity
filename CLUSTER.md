@@ -93,3 +93,16 @@ python experiments/exp12_connectivity_graph.py \
 - `runs/`, `data_doorpairs/`, `*.pt` are git-ignored — keep the repo code-only.
 - Reproducibility: everything is seeded (`--seed`); the train/val split is saved to
   `runs/full/split.json`.
+
+## Floor graph + embedding flip-prior (exp18)
+Once `best.pt` exists, build a globally consistent floor map from door edges:
+```
+python experiments/exp18_floor_graph_real.py --ckpt best.pt --device cuda
+```
+- Front-end: best-viewing pano pair per room-pair -> door-anchored measured pose +
+  which-side flip candidate (inlier-weighted).
+- Flip prior: the trained door encoder (through-door reprojection-consistency).
+- Output: `results/floorgraph/floor_real_sampletour.png` (GT vs geometry vs +embedding)
+  and per-edge true-side accuracy + room-position error.
+- Needs DAP depth for the panos; only the sample tour has it locally. To run on a full
+  multi-room home with real cycles, generate depth first (`scripts/generate_depth.py`).
