@@ -44,7 +44,7 @@ def collect_doors(fl, panos_dir, fov=70, crop=(224, 224)):
     return items, n_have
 
 
-def eval_home(home, embed, selftest=False, thr=None, tol=0.15, draw=True):
+def eval_home(home, embed, selftest=False, thr=None, tol=0.15, draw=True, mutual=False):
     home = Path(home); jp = home / "zind_data.json"
     if not jp.exists():
         return None
@@ -74,9 +74,25 @@ def eval_home(home, embed, selftest=False, thr=None, tol=0.15, draw=True):
     rmids = {r: [items[k][2] for k in ridx[r]] for r in rooms}
     def share(ra, rb):
         return any(np.linalg.norm(ma - mb) < tol for ma in rmids[ra] for mb in rmids[rb])
+    S = E @ E.T
+    room_of = [it[0] for it in items]
+    nn = None
+    if mutual:                                   # global nearest door in a DIFFERENT room
+        Sx = S.copy()
+        for i in range(len(items)):
+            for j in range(len(items)):
+                if room_of[i] == room_of[j]:
+                    Sx[i, j] = -np.inf
+        nn = Sx.argmax(1)
     y_true, y_score, pairs = [], [], []
     for ra, rb in combinations(rooms, 2):
-        y_score.append(float((E[ridx[ra]] @ E[ridx[rb]].T).max()))
+        ia, ib = ridx[ra], ridx[rb]
+        base = float(S[np.ix_(ia, ib)].max())
+        if mutual:                                # +1 if any door pair is a MUTUAL global NN
+            bonus = 1.0 if any(nn[i] == j and nn[j] == i for i in ia for j in ib) else 0.0
+            y_score.append(base + bonus)
+        else:
+            y_score.append(base)
         y_true.append(int(share(ra, rb))); pairs.append((ra, rb))
     y_true = np.array(y_true); y_score = np.array(y_score); P = int(y_true.sum())
     if P == 0 or len(pairs) == 0:
@@ -120,6 +136,7 @@ def main():
     ap.add_argument("--thr", type=float, default=None)
     ap.add_argument("--only", help="file with home names (e.g. val_homes.txt) to restrict to")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--mutual", action="store_true", help="mutual-NN edge scoring (fewer false edges on large homes)")
     a = ap.parse_args()
 
     if a.root:
@@ -141,7 +158,7 @@ def main():
     rows = []
     print(f"{'home':10} {'rooms':>5} {'pairs':>5} {'gt':>3} {'AP':>5} {'F1':>5} {'P':>5} {'R':>5} {'rand':>5}")
     for h in homes:
-        r = eval_home(h, embed, a.selftest, a.thr, draw=(len(homes) <= 5))
+        r = eval_home(h, embed, a.selftest, a.thr, draw=(len(homes) <= 5), mutual=a.mutual)
         if r is None:
             continue
         rows.append(r)

@@ -43,7 +43,7 @@ def main(a):
     rows = []
     print(f"{'home':10} {'rooms':>5} {'gt':>3} {'AP':>5} {'F1':>5} {'rand':>5}")
     for h in homes:
-        r = eval_home(h, embed, a.selftest, draw=False)
+        r = eval_home(h, embed, a.selftest, draw=False, mutual=a.mutual)
         if r is None:
             continue
         rows.append(r)
@@ -88,5 +88,6 @@ if __name__ == "__main__":
     ap.add_argument("--only"); ap.add_argument("--ckpt", default="best.pt")
     ap.add_argument("--max", type=int, default=60)
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--mutual", action="store_true", help="mutual-NN edge scoring")
     a = ap.parse_args()
     main(a)
