@@ -87,6 +87,7 @@ def main():
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--hard_neg", action="store_true", help="same-home hard-negative batching")
     ap.add_argument("--homes_per_batch", type=int, default=8)
+    ap.add_argument("--backbone_lr", type=float, default=None, help="LR for DINOv2 when --unfreeze (default = lr*0.05)")
     a = ap.parse_args()
 
     random.seed(a.seed); np.random.seed(a.seed)
@@ -114,7 +115,15 @@ def main():
         dl = DataLoader(ds, batch_size=a.bs, shuffle=True, drop_last=True,
                         num_workers=a.workers, pin_memory=True)
     enc = contrastive.build_encoder(dev, backbone=a.backbone, unfreeze=a.unfreeze)
-    opt = torch.optim.AdamW([p for p in enc.parameters() if p.requires_grad], lr=a.lr, weight_decay=a.wd)
+    if a.unfreeze:                                   # discriminative LR: keep the pretrained
+        bb_lr = a.backbone_lr if a.backbone_lr is not None else a.lr * 0.05   # backbone changes slowly
+        opt = torch.optim.AdamW(
+            [{"params": [p for p in enc.bb.parameters() if p.requires_grad], "lr": bb_lr},
+             {"params": enc.head.parameters(), "lr": a.lr}], weight_decay=a.wd)
+        print(f"[unfreeze] backbone lr {bb_lr:.1e}, head lr {a.lr:.1e} "
+              f"(low backbone lr avoids washing out DINOv2)")
+    else:
+        opt = torch.optim.AdamW([p for p in enc.parameters() if p.requires_grad], lr=a.lr, weight_decay=a.wd)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
 
     start_ep, best = 0, -1.0
