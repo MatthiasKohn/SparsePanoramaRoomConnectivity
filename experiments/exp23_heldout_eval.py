@@ -43,7 +43,7 @@ def main(a):
     rows = []
     print(f"{'home':10} {'rooms':>5} {'gt':>3} {'AP':>5} {'F1':>5} {'rand':>5}")
     for h in homes:
-        r = eval_home(h, embed, a.selftest, draw=False, mutual=a.mutual)
+        r = eval_home(h, embed, a.selftest, draw=False, mutual=a.mutual, scoring=a.scoring)
         if r is None:
             continue
         rows.append(r)
@@ -59,7 +59,8 @@ def main(a):
           f"| mean F1 {f1.mean():.3f} | mean random {rnd.mean():.3f} | lift x{lift:.1f}")
 
     out = config.RESULTS_ROOT / "heldout"; out.mkdir(parents=True, exist_ok=True)
-    with open(out / "heldout_ap.csv", "w", newline="") as f:
+    tag = ("_" + a.tag) if a.tag else ""
+    with open(out / f"heldout_ap{tag}.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
 
     fig, ax = plt.subplots(1, 3, figsize=(16, 4.5))
@@ -78,8 +79,8 @@ def main(a):
     fig.suptitle(f"Held-out ZInD connectivity — mean AP {ap.mean():.3f} (random {rnd.mean():.3f}, "
                  f"x{lift:.1f} lift)" + ("  [SELFTEST]" if a.selftest else ""), fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.94])
-    p = out / ("heldout_summary" + ("_selftest" if a.selftest else "") + ".png")
-    fig.savefig(p, dpi=120); print("saved", p, "and", out / "heldout_ap.csv")
+    p = out / ("heldout_summary" + tag + ("_selftest" if a.selftest else "") + ".png")
+    fig.savefig(p, dpi=120); print("saved", p, "and", out / f"heldout_ap{tag}.csv")
 
 
 if __name__ == "__main__":
@@ -89,5 +90,7 @@ if __name__ == "__main__":
     ap.add_argument("--max", type=int, default=60)
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--mutual", action="store_true", help="mutual-NN edge scoring")
+    ap.add_argument("--scoring", choices=["max", "mutual", "assign"], default="max")
+    ap.add_argument("--tag", default="", help="suffix for output filenames (avoid overwrite)")
     a = ap.parse_args()
     main(a)

@@ -44,7 +44,7 @@ def collect_doors(fl, panos_dir, fov=70, crop=(224, 224)):
     return items, n_have
 
 
-def eval_home(home, embed, selftest=False, thr=None, tol=0.15, draw=True, mutual=False):
+def eval_home(home, embed, selftest=False, thr=None, tol=0.15, draw=True, mutual=False, scoring="max"):
     home = Path(home); jp = home / "zind_data.json"
     if not jp.exists():
         return None
@@ -74,26 +74,41 @@ def eval_home(home, embed, selftest=False, thr=None, tol=0.15, draw=True, mutual
     rmids = {r: [items[k][2] for k in ridx[r]] for r in rooms}
     def share(ra, rb):
         return any(np.linalg.norm(ma - mb) < tol for ma in rmids[ra] for mb in rmids[rb])
+    if mutual and scoring == "max":
+        scoring = "mutual"
     S = E @ E.T
     room_of = [it[0] for it in items]
-    nn = None
-    if mutual:                                   # global nearest door in a DIFFERENT room
+    N = len(items)
+    nn = match_cos = None
+    if scoring == "mutual":                       # global nearest door in a DIFFERENT room
         Sx = S.copy()
-        for i in range(len(items)):
-            for j in range(len(items)):
+        for i in range(N):
+            for j in range(N):
                 if room_of[i] == room_of[j]:
                     Sx[i, j] = -np.inf
         nn = Sx.argmax(1)
+    elif scoring == "assign":                     # greedy global 1-to-1 door matching
+        cand = [(i, j) for i in range(N) for j in range(i + 1, N) if room_of[i] != room_of[j]]
+        cand.sort(key=lambda ij: -S[ij[0], ij[1]])
+        used, match_cos = set(), {}
+        for i, j in cand:
+            if i in used or j in used:
+                continue
+            used.add(i); used.add(j)
+            key = tuple(sorted((room_of[i], room_of[j])))
+            match_cos[key] = max(match_cos.get(key, -1.0), float(S[i, j]))
     y_true, y_score, pairs = [], [], []
     for ra, rb in combinations(rooms, 2):
         ia, ib = ridx[ra], ridx[rb]
         base = float(S[np.ix_(ia, ib)].max())
-        if mutual:                                # +1 if any door pair is a MUTUAL global NN
-            bonus = 1.0 if any(nn[i] == j and nn[j] == i for i in ia for j in ib) else 0.0
-            y_score.append(base + bonus)
+        if scoring == "mutual":                   # +1 if a door pair is a MUTUAL global NN
+            sc = base + (1.0 if any(nn[i] == j and nn[j] == i for i in ia for j in ib) else 0.0)
+        elif scoring == "assign":                 # +1 if the global assignment links these rooms
+            key = tuple(sorted((ra, rb)))
+            sc = (1.0 + match_cos[key]) if key in match_cos else base
         else:
-            y_score.append(base)
-        y_true.append(int(share(ra, rb))); pairs.append((ra, rb))
+            sc = base
+        y_score.append(sc); y_true.append(int(share(ra, rb))); pairs.append((ra, rb))
     y_true = np.array(y_true); y_score = np.array(y_score); P = int(y_true.sum())
     if P == 0 or len(pairs) == 0:
         return None
@@ -136,7 +151,8 @@ def main():
     ap.add_argument("--thr", type=float, default=None)
     ap.add_argument("--only", help="file with home names (e.g. val_homes.txt) to restrict to")
     ap.add_argument("--selftest", action="store_true")
-    ap.add_argument("--mutual", action="store_true", help="mutual-NN edge scoring (fewer false edges on large homes)")
+    ap.add_argument("--mutual", action="store_true", help="mutual-NN edge scoring")
+    ap.add_argument("--scoring", choices=["max", "mutual", "assign"], default="max", help="edge scoring rule")
     a = ap.parse_args()
 
     if a.root:
@@ -158,7 +174,7 @@ def main():
     rows = []
     print(f"{'home':10} {'rooms':>5} {'pairs':>5} {'gt':>3} {'AP':>5} {'F1':>5} {'P':>5} {'R':>5} {'rand':>5}")
     for h in homes:
-        r = eval_home(h, embed, a.selftest, a.thr, draw=(len(homes) <= 5), mutual=a.mutual)
+        r = eval_home(h, embed, a.selftest, a.thr, draw=(len(homes) <= 5), mutual=a.mutual, scoring=a.scoring)
         if r is None:
             continue
         rows.append(r)

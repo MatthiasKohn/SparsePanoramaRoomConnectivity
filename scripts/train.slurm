@@ -25,12 +25,19 @@ source scripts/activate_env.sh
 #    --val_frac 0.15 --seed 0 \
 #    --unfreeze        # uncomment to fine-tune the DINOv2 backbone (needs more GPU mem)
 
-python experiments/exp23_heldout_eval.py \
-    --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
-    --only runs/full/val_homes.txt \
-    --ckpt runs/full/best.pt \
-    --mutual \
-    --max 200
+#python experiments/exp23_heldout_eval.py \
+#    --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
+#    --only runs/full/val_homes.txt \
+#    --ckpt runs/full/best.pt \
+#    --mutual \
+#    --max 200
+
+for m in max mutual assign; do
+  python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
+      --only runs/full/val_homes.txt --ckpt best.pt --scoring $m --tag $m --max 200
+done
+python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_assign.csv
+
 
 # After training, evaluate connectivity on the HELD-OUT homes the run reserved:
 #   python experiments/exp12_connectivity_graph.py \
