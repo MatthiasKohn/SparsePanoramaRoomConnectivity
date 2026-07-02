@@ -44,13 +44,13 @@ source scripts/activate_env.sh
 #python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_assign.csv
 
 
-for m in max mutual assign; do
-  python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
-      --only runs/hardneg/val_homes.txt --ckpt runs/hardneg/best.pt --scoring $m --tag hn_$m --max 200
-done
-python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_hn_assign.csv
+#for m in max mutual assign; do
+#  python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
+#      --only runs/hardneg/val_homes.txt --ckpt runs/hardneg/best.pt --scoring $m --tag hn_$m --max 200
+#done
+#python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_hn_assign.csv
 
-
+for m in max mutual assign; do python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_hn_$m.csv; done
 
 
 # After training, evaluate connectivity on the HELD-OUT homes the run reserved:
