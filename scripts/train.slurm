@@ -15,7 +15,8 @@ mkdir -p logs runs
 # Ensure conda is available in non-interactive SLURM shells on bwUniCluster.
 module load devel/miniforge
 # module load devel/cuda/12.4         # <-- load CUDA if your env needs it
-source scripts/activate_env.sh
+#source scripts/activate_env.sh
+conda activate roomconn
 
 #python experiments/exp10_train_contrastive.py \
 #    --data data_doorpairs \
