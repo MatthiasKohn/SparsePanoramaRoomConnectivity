@@ -25,10 +25,51 @@ it is meant for your machine.
 import argparse
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
+
+
+def _patch_torch_amp_compat():
+    """Let newer DINOv3 code import on PyTorch builds with old AMP names."""
+    try:
+        import torch
+    except ImportError:
+        return
+
+    if not hasattr(torch, "amp") or not hasattr(torch, "cuda"):
+        return
+
+    if not hasattr(torch, "_dynamo"):
+        torch._dynamo = types.SimpleNamespace(
+            config=types.SimpleNamespace(),
+            reset_code_caches=lambda: None,
+        )
+
+    if not hasattr(torch, "compiler"):
+        torch.compiler = types.SimpleNamespace(
+            allow_in_graph=lambda obj: obj,
+        )
+    elif not hasattr(torch.compiler, "allow_in_graph"):
+        torch.compiler.allow_in_graph = lambda obj: obj
+
+    if not hasattr(torch.amp, "custom_fwd") and hasattr(torch.cuda.amp, "custom_fwd"):
+        def custom_fwd(*args, **kwargs):
+            kwargs.pop("device_type", None)
+            return torch.cuda.amp.custom_fwd(*args, **kwargs)
+
+        torch.amp.custom_fwd = custom_fwd
+
+    if not hasattr(torch.amp, "custom_bwd") and hasattr(torch.cuda.amp, "custom_bwd"):
+        def custom_bwd(*args, **kwargs):
+            kwargs.pop("device_type", None)
+            if not args and not kwargs:
+                return lambda bwd: torch.cuda.amp.custom_bwd(bwd)
+            return torch.cuda.amp.custom_bwd(*args, **kwargs)
+
+        torch.amp.custom_bwd = custom_bwd
 
 
 def _presets():
@@ -48,6 +89,7 @@ def _load_dap_runner():
     if not config.DAP_RUNNER.exists():
         sys.exit(f"DAP runner not found at {config.DAP_RUNNER}\n"
                  f"Expected the DAP repo beside this project: {config.DAP_ROOT}")
+    _patch_torch_amp_compat()
     spec = importlib.util.spec_from_file_location("dap_runner", config.DAP_RUNNER)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)         # safe: model load happens only on call

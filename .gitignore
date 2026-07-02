@@ -9,6 +9,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv-gs/
 venv/
 env/
 
@@ -28,6 +29,9 @@ ContextMDs/
 .env
 .env.*
 !.env.example
+
+# Local binary/tool installs
+.tools/
 
 # Large datasets and generated training data
 data/

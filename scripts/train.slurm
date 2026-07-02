@@ -26,9 +26,9 @@ source scripts/activate_env.sh
 #    --unfreeze        # uncomment to fine-tune the DINOv2 backbone (needs more GPU mem)
 
 
-python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/hardneg \
-    --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
-    --val_frac 0.15 --seed 0 --unfreeze --hard_neg --homes_per_batch 8
+#python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/hardneg \
+#    --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
+#    --val_frac 0.15 --seed 0 --unfreeze --hard_neg --homes_per_batch 8
 
 #python experiments/exp23_heldout_eval.py \
 #    --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
@@ -46,7 +46,7 @@ python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/h
 
 for m in max mutual assign; do
   python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
-    --only runs/hardneg/val_homes.txt --ckpt runs/hardneg/best.pt --scoring $m --tag hn_$m --max 200
+      --only runs/hardneg/val_homes.txt --ckpt runs/hardneg/best.pt --scoring $m --tag hn_$m --max 200
 done
 python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_hn_assign.csv
 
