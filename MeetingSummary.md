@@ -104,3 +104,109 @@ with the large-home failure mode largely eliminated (large-home precision 0.55 �
 - Depth-based poses are metrically noisy; the metric map needs COLMAP or multi-view.
 - 0.913 uses a fine-tuned backbone with a mild overfit signal (val plateau); the number is
   held-out so it stands, but a frozen+hard-neg ablation would tighten the story.
+
+---
+
+# Appendix — Detailed notes & expected questions
+
+## "Didn't SALVe already solve this?"
+Largely, for the **2D** problem: SALVe takes sparse panos, hypothesizes adjacencies from
+window/door/opening layouts, resolves the alignment ambiguity with a learned **verifier**
+(renders each candidate alignment to a bird's-eye texture, a CNN says correct/incorrect), and
+builds a 2D floor plan. So connectivity + 2D layout + ambiguity is SALVe's territory — treat it
+as the **baseline**, not a novelty. We differ in mechanism (a door **embedding** for matching +
+monocular-depth geometry for pose, no per-room layout estimation) and, crucially, we extend to
+**3D**, which SALVe does not do. Honest positioning: connectivity is competitive with SALVe by a
+simpler route; the novel contribution is the 3D extension and the appearance-based flip
+resolution that makes 3D coherent.
+
+## How do we get poses now?
+For a matched door seen in both panos: its **bearing (azimuth)** in each pano fixes the relative
+**yaw** (both cameras face the same wall from opposite sides; gravity-alignment ⇒ only yaw can
+differ), and its **depth-distance** in each pano fixes the **translation**. That's one relative
+pose per edge, up to the which-side flip. A pose graph fuses all edges into a global layout. This
+is different from SALVe's layout-alignment approach, and it's metrically noisy (see below).
+
+## What is GT used for? (only training supervision?)
+Three uses, none at test time in the target system: (1) **positive pairs** for contrastive
+training — which two door crops are the same physical door; (2) **door locations** — where doors
+are in each pano, to crop them (a detector does this at deployment); (3) **evaluation** — GT
+connectivity/poses to compute the metrics. The learned model itself only sees pano pixels.
+
+## Connectivity: "embedding cosine → edge → threshold-free AP"
+Each door crop → a 128-d unit **embedding**. Similarity = **cosine** (dot product of unit
+vectors, 1 = very similar); training pulls matching doors high, non-matches low. A room pair's
+score = similarity of its best-matching door pair (+ assignment logic). Rank all room pairs by
+score; sweep the cutoff strict→loose; at each cutoff compute **precision** (predicted edges that
+are real) and **recall** (real edges found). Area under that precision-recall curve = **Average
+Precision (AP)** — "threshold-free" because it summarizes all cutoffs. Random ≈ base rate (0.31).
+
+## Extension — Pose
+Door-anchored relative pose (yaw from door bearings, translation from door depth) + the 2-fold
+**which-side flip**. **SE(2)** = 2D rigid pose (x, y, yaw). A **pose graph** is a spring-network
+that settles all room poses to be mutually consistent; loops (cycles) expose and fix wrong flips.
+**COLMAP** supplies accurate, flip-free anchor edges where panos overlap (the metric backbone).
+
+## Extension — 3D
+**Gaussian splatting** = a scene as many small 3D colored "blobs." Per-room init: back-project
+one pano's depth → a colored 3D cloud of that room. Placed by the pose graph → one 3D model of
+the whole floor.
+
+## Depth is noisy — does COLMAP fix it?
+The **translation** (door distance) comes from **monocular depth** — an *estimate*, not a
+measurement — so distances are a bit off and errors accumulate (~2 m layout error, right shape /
+imprecise scale). **COLMAP** computes poses from *real* multi-view geometry (matching features in
+overlapping images), so where panos overlap (same room, see-through doorways) it gives accurate
+poses and replaces the noisy depth-based ones. Catch: it only works with overlap, so it can't
+link fully non-overlapping rooms — those stay with the door embedding. Status: mechanism proven
+on synthetic layouts (15–30% accurate edges → ~6× lower error); **not yet run on our data** (next
+experiment; COLMAP 4.1.0 confirmed, runner ready).
+
+## "Held-out connectivity, baseline scoring: AP 0.691"
+On 197 homes never seen in training (measures generalization), using the simplest edge score
+(plain max cosine), mean AP was 0.691 ≈ 2.3× random. Improvable → assignment + hard negatives
+took it to 0.91.
+
+## Same-home hard-negative training
+Contrastive learning pushes away **negatives** (non-matching crops). Normally negatives come from
+the random batch — mostly doors from *other houses*, which are easy, so the model never learns
+subtle distinctions. But the real failure is confusing **same-building** doors (similar style) →
+false edges in big homes. Fix: build each batch from a few homes so negatives are **same-home**,
+forcing the model to learn discriminative detail; plus gentle backbone fine-tuning. Result:
+0.69 → 0.91 AP; large-home precision 0.55 → 0.86.
+
+## Which-side flip
+A matched door is a **hinge**: the neighbor room can be "folded" to either side of the door plane
+and the single door-match is equally satisfied → two mirror poses, a genuine ambiguity geometry
+can't break. **Appearance** breaks it: under the correct side, what A sees *through* the doorway
+reprojects to where B actually shows that content; under the flip it lands on the wrong part of
+B. The embedding checks this and picked the right side **7/7** on a real home. A wrong flip makes
+the rooms collide in 3D.
+
+## Pose graph + hybrid (detail)
+Controlled test on GT layouts with some edges labeled "door" (noisy + flip) and some "COLMAP"
+(accurate, flip-free): even 15–30% COLMAP edges cut median layout error ~6× (1.76 → 0.28 m) and
+raised flip accuracy — accurate anchors pin scale and, via cycles, fix neighboring flips. On real
+data, door poses are ~2 m off but topologically correct once flips are resolved ⇒ COLMAP = metric
+backbone.
+
+## 3D (detail) and "0% interpenetration"
+Single-pano Gaussian init rendered from the same camera reproduces the input (63 dB) — confirms
+the init is geometrically correct. **Interpenetration** = fraction of one room's 3D points that
+fall *inside* the other room's volume: **0%** = rooms sit adjacent, sharing only the doorway
+(correct); **52%** = rooms stacked on each other (impossible — the wrong flip). The e2 figure
+(GT | correct side 0% | flipped 52%) is the visual + numeric proof the flip makes/breaks 3D.
+Seamless multi-room splatting (one clean floor-wide splat) is unsolved → future work.
+
+## Saliency visualization — worth showing
+Occlusion-sensitivity map: slide a gray patch over a door crop, measure how much the match
+similarity drops; big drop = that region drives the match; paint it back onto the full panorama.
+It lights up on the **doorway opening and see-through region**, not random wall texture — i.e.
+interpretability evidence that the model matches on the *right* cue. Also caught bad/misaligned
+crops during debugging. Show it as qualitative sanity alongside the 0.91 AP (few examples, not a
+metric).
+
+## Ablation numbers to have ready
+- Frozen baseline: max 0.691 → assign 0.737.
+- Hard-neg + fine-tune: max 0.877 → mutual 0.902 → assign 0.913 (the two levers stack; hard
+  negatives give the big jump, assignment adds on top).

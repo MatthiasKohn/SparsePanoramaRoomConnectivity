@@ -45,7 +45,13 @@ def make_gt_provider(home_dir, floor="floor_01"):
 
 
 def load_colmap(model_dir):
-    """pycolmap Reconstruction -> {pano_stem: T_cam2world (4x4)}. Native spherical model."""
+    """{pano_stem: T_cam2world (4x4)} from either a native COLMAP sparse model dir or
+    a pano_poses.json produced by scripts/colmap_perspective.py (perspective-split)."""
+    import json as _json
+    p = Path(model_dir)
+    if p.suffix == ".json" or (p.is_dir() and (p / "pano_poses.json").exists()):
+        jp = p if p.suffix == ".json" else p / "pano_poses.json"
+        return {k: np.asarray(v, float) for k, v in _json.load(open(jp)).items()}
     import pycolmap
     rec = pycolmap.Reconstruction(model_dir)
     out = {}

@@ -85,6 +85,7 @@ def main(a):
     salB, _ = occ_saliency(B, fA, embed, a.grid)
     print(f"door {P['tag']}: cos(A,B) = {base:.3f}")
     out = config.RESULTS_ROOT / "saliency"; out.mkdir(parents=True, exist_ok=True)
+    ckpt_tag = "selftest" if a.selftest else Path(a.ckpt).stem
 
     if "panoA" in P:                                   # full-pano context view
         hA = paint_on_pano(P["panoA"], salA, P["az_a"])
@@ -102,14 +103,14 @@ def main(a):
         fig.suptitle(f"Cross-view match saliency  (cos={base:.2f})"
                      + ("  [SELF-TEST]" if a.selftest else ""), fontsize=12)
         fig.tight_layout(rect=[0, 0, 1, 0.97])
-        p = out / (f"saliency_pano_{P['tag']}{'_selftest' if a.selftest else ''}.png")
+        p = out / (f"saliency_pano_{P['tag']}_{ckpt_tag}.png")
     else:                                              # crop-only (e.g. --pair)
         fig, ax = plt.subplots(1, 4, figsize=(13, 3.6))
         ax[0].imshow(A); ax[0].set_title(f"A (cos={base:.2f})", fontsize=9); ax[0].axis("off")
         ax[1].imshow(A); ax[1].imshow(salA, cmap="jet", alpha=.45); ax[1].set_title("A saliency"); ax[1].axis("off")
         ax[2].imshow(B); ax[2].imshow(salB, cmap="jet", alpha=.45); ax[2].set_title("B saliency"); ax[2].axis("off")
         ax[3].imshow(B); ax[3].set_title("B", fontsize=9); ax[3].axis("off")
-        p = out / (f"saliency_{P['tag']}{'_selftest' if a.selftest else ''}.png")
+        p = out / (f"saliency_{P['tag']}_{ckpt_tag}.png")
     fig.savefig(p, dpi=120); print("saved", p)
 
 

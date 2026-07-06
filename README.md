@@ -23,6 +23,20 @@ Datasets live in `../data` (sibling of this folder): `data/standord2d3d/area_3/.
 python experiments/exp01_pose_ablation.py     # needs: numpy, scipy, opencv, matplotlib
 ```
 
+## Lightweight viewer
+```
+python tools/viewer.py --panos path/to/panos
+python tools/viewer.py --panos path/to/pano.jpg
+python tools/viewer.py --pointcloud results/pointclouds/example.ply
+python tools/viewer.py --panos path/to/panos --pointcloud results/pointclouds/example.ply
+```
+
+The viewer starts a local browser-based WebGL app, prints a URL, and keeps all
+project code untouched. Panoramas are shown as an interactive equirectangular
+360 view; point clouds support `.ply`, `.pcd`, `.xyz`, `.txt`, and `.npy` files
+with RGB colors when present. Use `--max_points` to downsample large clouds for
+interactive debugging.
+
 ## Findings so far (see ContextMDs/ResearchLog.md)
 - DAP depth is metric and reliable, incl. through doorways (vs Stanford GT). Not the bottleneck.
 - Relative rotations between gravity-aligned panos are pure yaw (tilt < ~1°).

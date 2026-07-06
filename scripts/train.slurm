@@ -18,42 +18,9 @@ module load devel/miniforge
 #source scripts/activate_env.sh
 conda activate roomconn
 
-#python experiments/exp10_train_contrastive.py \
-#    --data data_doorpairs \
-#    --out  runs/full_ft \
-#    --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 \
-#    --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
-#    --val_frac 0.15 --seed 0 \
-#    --unfreeze        # uncomment to fine-tune the DINOv2 backbone (needs more GPU mem)
 
-
-#python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/hardneg \
-#    --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 --eval_every 2 --workers "$SLURM_CPUS_PER_TASK" \
-#    --val_frac 0.15 --seed 0 --unfreeze --hard_neg --homes_per_batch 8
-
-#python experiments/exp23_heldout_eval.py \
-#    --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
-#    --only runs/full/val_homes.txt \
-#    --ckpt runs/full/best.pt \
-#    --mutual \
-#    --max 200
-
-#for m in max mutual assign; do
-#  python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
-#      --only runs/full/val_homes.txt --ckpt best.pt --scoring $m --tag $m --max 200
-#done
-#python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_assign.csv
-
-
-#for m in max mutual assign; do
-#  python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
-#      --only runs/hardneg/val_homes.txt --ckpt runs/hardneg/best.pt --scoring $m --tag hn_$m --max 200
-#done
-#python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_hn_assign.csv
-
-for m in max mutual assign; do python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_hn_$m.csv; done
-
-
-# After training, evaluate connectivity on the HELD-OUT homes the run reserved:
-#   python experiments/exp12_connectivity_graph.py \
-#       --root <ZIND_ROOT> --only runs/full/val_homes.txt --ckpt runs/full/best.pt
+# frozen + hard-neg (isolates hard-neg from fine-tuning; also rules out the overfit worry)
+python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/hardneg_frozen \
+    --epochs 40 --bs 128 --lr 3e-4 --eval_every 2 --workers 8 --hard_neg --homes_per_batch 8
+python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
+    --only runs/hardneg_frozen/val_homes.txt --ckpt runs/hardneg_frozen/best.pt --scoring assign --tag frozen_hn --max 200
