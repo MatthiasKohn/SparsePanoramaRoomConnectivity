@@ -26,8 +26,12 @@ def info_nce_np(za, zb, tau=0.07):
 
 # ---- torch model / data / train (run on GPU) ----
 def build_encoder(device="cuda", backbone="dinov2_vits14", out_dim=128, unfreeze=False):
-    import torch, torch.nn as nn
-    bb = torch.hub.load("facebookresearch/dinov2", backbone)
+    import os, torch, torch.nn as nn
+    repo = os.environ.get("DINOV2_REPO")
+    if repo and os.path.isdir(repo):                 # offline clusters: local clone, no GitHub
+        bb = torch.hub.load(repo, backbone, source="local")
+    else:
+        bb = torch.hub.load("facebookresearch/dinov2", backbone)
     feat_dim = bb.embed_dim
     for p in bb.parameters():
         p.requires_grad = unfreeze

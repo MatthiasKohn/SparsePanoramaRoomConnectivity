@@ -59,6 +59,8 @@ depths/
 *.npy
 *.npz
 
+
+*.tgz
 # Temporary files
 tmp/
 temp/
