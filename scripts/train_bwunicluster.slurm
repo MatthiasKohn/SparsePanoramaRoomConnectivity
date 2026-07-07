@@ -1,8 +1,8 @@
 #!/bin/bash
-# Backward-compatible bwUniCluster entrypoint.
-# Prefer the explicit cluster scripts:
+# Submit this on bwUniCluster:
 #   sbatch scripts/train_bwunicluster.slurm
-#   sbatch scripts/train_leonardo.slurm
+#
+# Cluster-specific paths/modules live in scripts/env_bwunicluster.sh.
 
 #SBATCH --job-name=door_train
 #SBATCH --partition=gpu_a100_il

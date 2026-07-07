@@ -9,9 +9,10 @@ Layout assumed:
       DAP/                              <- depth model repo
       SparsePanoramaRoomConnectivity/   <- this project
 """
+import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parent)).resolve()
 DATA_ROOT = PROJECT_ROOT.parent / "data"
 
 # ---- Stanford 2D-3D-S ----
@@ -44,5 +45,5 @@ def zind_paths() -> dict:
 DAP_ROOT = PROJECT_ROOT.parent / "DAP"
 DAP_RUNNER = DAP_ROOT / "test" / "run_dap_inference.py"
 
-RESULTS_ROOT = PROJECT_ROOT / "results"
-RESULTS_ROOT.mkdir(exist_ok=True)
+RESULTS_ROOT = Path(os.environ.get("RESULTS_ROOT", PROJECT_ROOT / "results")).resolve()
+RESULTS_ROOT.mkdir(parents=True, exist_ok=True)

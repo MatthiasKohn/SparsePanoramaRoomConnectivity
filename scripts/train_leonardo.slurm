@@ -1,11 +1,12 @@
 #!/bin/bash
-# Backward-compatible bwUniCluster entrypoint.
-# Prefer the explicit cluster scripts:
-#   sbatch scripts/train_bwunicluster.slurm
+# Submit this on Leonardo/CINECA:
 #   sbatch scripts/train_leonardo.slurm
+#
+# Cluster-specific paths/modules live in scripts/env_leonardo.sh.
 
 #SBATCH --job-name=door_train
-#SBATCH --partition=gpu_a100_il
+#SBATCH --account=EUHPC_D35_121
+#SBATCH --partition=boost_usr_prod
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
@@ -15,7 +16,8 @@
 set -euo pipefail
 
 cd "$SLURM_SUBMIT_DIR"
-source scripts/env_bwunicluster.sh
+source "$HOME/projects/SparsePanoramaRoomConnectivity/scripts/env_leonardo.sh"
+cd "$PROJECT_ROOT"
 exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 
 RUN_NAME="${RUN_NAME:-unfrozen_nohn}"
