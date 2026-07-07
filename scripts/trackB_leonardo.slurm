@@ -6,9 +6,10 @@
 
 #SBATCH --job-name=trackB_floordata
 #SBATCH --account=EUHPC_D35_121
-#SBATCH --partition=dcgp_usr_prod
+#SBATCH --partition=boost_usr_prod   # CPU job, but the CPU (dcgp) partition needs a
+#SBATCH --gres=gpu:1                 # separate budget; boost is where your hours are.
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00
 #SBATCH --output=/dev/null
@@ -19,4 +20,5 @@ source "$HOME/projects/SparsePanoramaRoomConnectivity/scripts/env_leonardo.sh"
 cd "$PROJECT_ROOT"
 exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 
-python experiments/exp30_build_floor_dataset.py --root "$ZIND_ROOT" --with_crops --max 9999 --out data_floors
+python experiments/exp30_build_floor_dataset.py --root "$ZIND_ROOT" --with_crops --max 9999 \
+    --out "$RESULTS_ROOT/../data_floors"
