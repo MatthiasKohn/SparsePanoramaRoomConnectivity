@@ -13,7 +13,7 @@ source /leonardo_work/EUHPC_D35_121/envs/roomconn/bin/activate
 export ZIND_ROOT="${ZIND_ROOT:-/leonardo_work/EUHPC_D35_121/datasets/zind/full_dataset}"
 export PROJECT_ROOT="${PROJECT_ROOT:-$HOME/projects/SparsePanoramaRoomConnectivity}"
 export RUN_ROOT="${RUN_ROOT:-/leonardo_work/EUHPC_D35_121/results/SparsePanoramaRoomConnectivity/runs}"
-export LOG_ROOT="${LOG_ROOT:-/leonardo_work/EUHPC_D35_121/logs}"
+export LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/logs}"
 export RESULTS_ROOT="${RESULTS_ROOT:-/leonardo_work/EUHPC_D35_121/results/SparsePanoramaRoomConnectivity/results}"
 export CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-/leonardo_work/EUHPC_D35_121/checkpoints/SparsePanoramaRoomConnectivity}"
 
