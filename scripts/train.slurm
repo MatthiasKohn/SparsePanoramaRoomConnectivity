@@ -23,20 +23,23 @@ RUN_DIR="$RUN_ROOT/$RUN_NAME"
 
 mkdir -p "$RUN_DIR"
 
-python experiments/exp10_train_contrastive.py \
-    --data data_doorpairs \
-    --out "$RUN_DIR" \
-    --epochs 40 \
-    --bs 128 \
-    --lr 3e-4 \
-    --eval_every 2 \
-    --workers "${SLURM_CPUS_PER_TASK:-8}" \
-    --unfreeze
+#python experiments/exp10_train_contrastive.py \
+#    --data data_doorpairs \
+#    --out "$RUN_DIR" \
+#    --epochs 40 \
+#    --bs 128 \
+#    --lr 3e-4 \
+#    --eval_every 2 \
+#    --workers "${SLURM_CPUS_PER_TASK:-8}" \
+#    --unfreeze
+#
+#python experiments/exp23_heldout_eval.py \
+#    --root "$ZIND_ROOT" \
+#    --only "$RUN_DIR/val_homes.txt" \
+#    --ckpt "$RUN_DIR/best.pt" \
+#    --scoring assign \
+#    --tag "$RUN_NAME" \
+#    --max 200
 
-python experiments/exp23_heldout_eval.py \
-    --root "$ZIND_ROOT" \
-    --only "$RUN_DIR/val_homes.txt" \
-    --ckpt "$RUN_DIR/best.pt" \
-    --scoring assign \
-    --tag "$RUN_NAME" \
-    --max 200
+python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_unfrozen_nohn.csv
+python experiments/exp25_diagnose_scaling.py --csv results/heldout/heldout_ap_hn_assign.csv   # unfrozen+hn
