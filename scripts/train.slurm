@@ -20,7 +20,7 @@ conda activate roomconn
 
 
 # frozen + hard-neg (isolates hard-neg from fine-tuning; also rules out the overfit worry)
-python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/hardneg_frozen \
-    --epochs 40 --bs 128 --lr 3e-4 --eval_every 2 --workers 8 --hard_neg --homes_per_batch 8
+python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/unfrozen_nohn \
+    --epochs 40 --bs 128 --lr 3e-4 --eval_every 2 --workers 8 --unfreeze
 python experiments/exp23_heldout_eval.py --root /home/ul/ul_student/ul_fnm03/data/zind/full_dataset \
-    --only runs/hardneg_frozen/val_homes.txt --ckpt runs/hardneg_frozen/best.pt --scoring assign --tag frozen_hn --max 200
+    --only runs/unfrozen_nohn/val_homes.txt --ckpt runs/unfrozen_nohn/best.pt --scoring assign --tag unfrozen_nohn --max 200
