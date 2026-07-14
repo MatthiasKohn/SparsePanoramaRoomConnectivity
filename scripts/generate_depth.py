@@ -93,6 +93,11 @@ def _load_dap_runner():
     spec = importlib.util.spec_from_file_location("dap_runner", config.DAP_RUNNER)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)         # safe: model load happens only on call
+    # The local DAP runner may have been copied from a workstation with a
+    # hardcoded DAP_ROOT. Keep cluster paths controlled by this project.
+    mod.DAP_ROOT = config.DAP_ROOT
+    mod.WEIGHTS_DIR = config.DAP_ROOT / "weights"
+    mod.CONFIG_PATH = config.DAP_ROOT / "config" / "infer.yaml"
     return mod
 
 
