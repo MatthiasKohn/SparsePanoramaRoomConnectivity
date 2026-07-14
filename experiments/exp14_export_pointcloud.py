@@ -159,7 +159,9 @@ def main(a):
 
     if mode != "single" and clouds:
         XYZ = np.concatenate([c[0] for c in clouds]); COL = np.concatenate([c[1] for c in clouds])
-        name = f"{a.dataset}_{mode}_{len(clouds)}panos.ply"
+        # pose-source tag so the viewer header is unambiguous: GT poses vs pipeline estimate
+        POSE_TAG = {"merge": "GTpose", "estimate": "PIPELINEpose", "single": "single"}
+        name = f"{a.dataset}_{POSE_TAG.get(mode, mode)}_{len(clouds)}panos.ply"
         write_ply(OUT / name, XYZ, COL); print(f"\n  wrote {OUT/name}  ({len(XYZ):,} pts)")
         if a.preview:
             _preview(clouds, OUT / name.replace(".ply", "_topdown.png"))

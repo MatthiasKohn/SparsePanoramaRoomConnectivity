@@ -47,17 +47,25 @@ with the large-home failure mode largely eliminated (large-home precision 0.55 �
 3. **Global door assignment (no retraining):** a door connects to ≤1 door in one other room →
    solve a global matching → confusable doors get consumed by their true partner → false edges
    collapse. AP 0.691 → **0.737**, recall up too.
-4. **Same-home hard-negative training:** standard contrastive negatives are easy (doors from
-   other houses); the hard case is same-BUILDING doors. Packing each batch from a few homes makes
-   in-batch negatives same-home → teaches discriminability; plus gentle backbone fine-tuning.
-   **AP → 0.913**, large-home precision 0.55 → 0.86, degradation-with-size largely removed.
-5. **Which-side flip resolution:** the trained embedding (through-door reprojection consistency)
+4. **Backbone fine-tuning + same-home hard negatives → AP 0.913.** Clean 2×2 ablation
+   (assign scoring, same 197-home split): **fine-tuning the DINOv2 backbone is the dominant
+   lever** (frozen 0.737 → unfrozen 0.863). **Same-home hard negatives add +0.05 on top, and
+   only when unfrozen** (frozen+hn 0.754; unfrozen+hn 0.913) — a synergy, because hard negatives
+   need a trainable backbone to separate same-building doors. That +0.05 is localized to
+   **large-home precision** (0.78 → 0.86), i.e. the confusable-door fix. Honest decomposition,
+   still justifies the hard-neg design.
+5. **GT-FREE connectivity (real detector, no GT door locations):** swapping GT doors for a
+   SegFormer detector costs only ~7 AP points — **0.913 (oracle) → 0.842 (detected)** on the
+   held-out homes. Robust because the matcher filters the detector's massive over-detection
+   (precision 0.31); the residual gap is detector *recall* (0.66, missed openings/closed doors).
+   A fully-GT-free system at 0.842 = 2.8× random.
+6. **Which-side flip resolution:** the trained embedding (through-door reprojection consistency)
    resolved **7/7** flips on a real cyclic home. Geometry alone cannot — it's a true ambiguity.
-6. **Pose graph + hybrid:** on GT layouts, adding flip-free metric anchors (COLMAP) to door
+7. **Pose graph + hybrid:** on GT layouts, adding flip-free metric anchors (COLMAP) to door
    edges cuts layout error ~6× and lifts flip accuracy — even at 15–30% COLMAP coverage. Real
    monocular door-anchored poses are metrically noisy (~2 m) but topologically correct once flips
    are right → COLMAP is the metric backbone.
-7. **3D:** a single-pano Gaussian init reproduces the input view (63 dB); a wrong flip makes two
+8. **3D:** a single-pano Gaussian init reproduces the input view (63 dB); a wrong flip makes two
    rooms interpenetrate 52% vs 0% for the correct side — the 3D stakes of the flip. Seamless
    multi-room splatting is unsolved (future work).
 
@@ -207,6 +215,10 @@ crops during debugging. Show it as qualitative sanity alongside the 0.91 AP (few
 metric).
 
 ## Ablation numbers to have ready
-- Frozen baseline: max 0.691 → assign 0.737.
-- Hard-neg + fine-tune: max 0.877 → mutual 0.902 → assign 0.913 (the two levers stack; hard
-  negatives give the big jump, assignment adds on top).
+- Scoring on the hard-neg model: max 0.877 → mutual 0.902 → assign 0.913.
+- 2×2 (assign AP, same split): frozen-nohn 0.737 | frozen-hn 0.754 | unfrozen-nohn 0.863 |
+  unfrozen-hn 0.913. => fine-tuning +0.13 (dominant); hard-neg +0.05 only when unfrozen,
+  localized to large-home precision (0.78→0.86).
+- GT-free: 0.913 (oracle doors) → 0.842 (SegFormer detector); detector P/R @15° = 0.31/0.66.
+- M2 door-distance (0025, n=23): DAP median err 0.65 m; fixed-width geometry 0.44 m median but
+  1.66 m MAE (outliers on wide openings) → motivates a learned per-door distance head.

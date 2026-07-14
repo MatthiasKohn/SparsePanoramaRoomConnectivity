@@ -477,22 +477,43 @@ function loadPano(i) {{
   return new Promise((resolve, reject) => {{
     const img = new Image();
     img.onload = () => {{
+      const source = panoTextureSource(img);
       const tex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      const err = gl.getError();
+      if (err !== gl.NO_ERROR) {{
+        gl.deleteTexture(tex);
+        reject(new Error(`Could not upload panorama texture. WebGL error ${{err}}. Try a smaller image.`));
+        return;
+      }}
       if (panoTexture) gl.deleteTexture(panoTexture);
       panoTexture = tex;
-      statusEl.textContent = panos[i].name;
+      const resized = source !== img ? `  resized to ${{source.width}}x${{source.height}} for WebGL` : "";
+      statusEl.textContent = `${{panos[i].name}}${{resized}}`;
       resolve();
     }};
     img.onerror = reject;
     img.src = panos[i].url;
   }});
+}}
+
+function panoTextureSource(img) {{
+  const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  const largest = Math.max(img.naturalWidth, img.naturalHeight);
+  if (largest <= maxTex) return img;
+  const scale = maxTex / largest;
+  const canvas2d = document.createElement("canvas");
+  canvas2d.width = Math.max(1, Math.floor(img.naturalWidth * scale));
+  canvas2d.height = Math.max(1, Math.floor(img.naturalHeight * scale));
+  const ctx = canvas2d.getContext("2d");
+  ctx.drawImage(img, 0, 0, canvas2d.width, canvas2d.height);
+  return canvas2d;
 }}
 
 async function loadCloud() {{
