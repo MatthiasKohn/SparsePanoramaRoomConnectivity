@@ -58,8 +58,16 @@ def emb_scores(embed, panoA, panoB, depthA, az_a_deg, m, mflip):
     return sc[0], sc[1]
 
 
-def diag_floor(prov, embed, name):
-    """One row per door edge on the floor's largest connected component."""
+def diag_floor(prov, embed, name, oracle_pose=False):
+    """One row per door edge on the floor's largest connected component.
+
+    oracle_pose: instead of the DAP-depth-estimated relative pose, compute the
+    through-door reprojection under the GT relative pose (and its point-reflection).
+    This removes ALL pose/depth error from the reprojection step, so the resulting
+    accuracy isolates a single question: given perfect geometry, does through-door
+    APPEARANCE carry the which-side signal at all? (~chance => mechanism is dead, not
+    just depth-limited; high => the failure is pose/depth, fixable with better depth.)
+    """
     de = door_edges(prov)
     if len(de) < 2:
         return []
@@ -82,12 +90,16 @@ def diag_floor(prov, embed, name):
         m = e["m"]; mflip = pg.rot_pi_about(m, e["doorA"])
         edges.append((i, j))
         mgt = pg.between(Xgt[i], Xgt[j])
-        ti = 0 if np.linalg.norm((m - mgt)[:2]) <= np.linalg.norm((mflip - mgt)[:2]) else 1
+        if oracle_pose:
+            m_use, mflip_use, ti = mgt, pg.rot_pi_about(mgt, e["doorA"]), 0
+        else:
+            m_use, mflip_use = m, mflip
+            ti = 0 if np.linalg.norm((m - mgt)[:2]) <= np.linalg.norm((mflip - mgt)[:2]) else 1
         for s in (x, y):
             if s not in pim:
                 pim[s] = load_pano(prov, s)
         sc = emb_scores(embed, pim[x], pim[y], prov.depth(x),
-                        np.degrees(e["az_a"]), m, mflip)
+                        np.degrees(e["az_a"]), m_use, mflip_use)
         rec = dict(home=name, pano_a=x, pano_b=y, room_a=ra, room_b=rb,
                    inlier=round(float(inl), 4), true_idx=int(ti))
         if sc is None:
@@ -138,7 +150,7 @@ def main(a):
                 have = [n for n in prov.fl.panos if (prov.depth_dir / f"{n}.npy").exists()]
                 if len(have) < 3:
                     continue
-                fr = diag_floor(prov, embed, f"{hid}/{floor}")
+                fr = diag_floor(prov, embed, f"{hid}/{floor}", oracle_pose=a.oracle_pose)
             except Exception as e:
                 print(f"{hid}/{floor}: FAILED — {e}"); continue
             rows.extend(fr)
@@ -203,6 +215,8 @@ if __name__ == "__main__":
     ap.add_argument("--ckpt", default=None)
     ap.add_argument("--embed", default=None, help="'selftest' for CPU plumbing check")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--oracle_pose", action="store_true",
+                    help="reproject under GT relative pose -> appearance-only test")
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
     main(a)
