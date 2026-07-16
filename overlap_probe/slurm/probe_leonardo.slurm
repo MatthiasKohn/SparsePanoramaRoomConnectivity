@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=04:00:00
-#SBATCH --output=/dev/null
+#SBATCH --output=overlap_probe_%j.out
 
 set -euo pipefail
 
