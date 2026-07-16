@@ -29,13 +29,13 @@ exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 M=/leonardo_work/EUHPC_D35_121/models
 export ARGUS_DIR="${ARGUS_DIR:-$M/argus}";       export ARGUS_PY="${ARGUS_PY:-$M/argus/.venv/bin/python}"
 export PANOVGGT_DIR="${PANOVGGT_DIR:-$M/panovggt}"; export PANOVGGT_PY="${PANOVGGT_PY:-$M/panovggt/.venv/bin/python}"
-export VGGT_DIR="${VGGT_DIR:-$M/vggt}";          export VGGT_PY="${VGGT_PY:-$M/vggt/.venv/bin/python}"
+#export VGGT_DIR="${VGGT_DIR:-$M/vggt}";          export VGGT_PY="${VGGT_PY:-$M/vggt/.venv/bin/python}"
 
 ONLY="${ONLY:-scripts/depth_homes.txt}"     # the 20 held-out cyclic homes (or a bigger list)
 
 python overlap_probe/run_probe.py \
     --root "$ZIND_ROOT" --only "$ONLY" \
-    --models argus,panovggt,vggt_tiled \
+    --models argus,panovggt \
     --out "$RESULTS_ROOT/overlap_probe"
 
 # Harness sanity (no models needed), if you want it in the same job:
