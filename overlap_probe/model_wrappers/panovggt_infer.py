@@ -38,7 +38,17 @@ def load_model(config_path, checkpoint_path, device):
         if key in ckpt:
             ckpt = ckpt[key]; break
     sd = {(k[7:] if k.startswith("module.") else k): v for k, v in ckpt.items()}
-    model.load_state_dict(sd, strict=False)
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    # Report whether the checkpoint actually covered the DINOv2 backbone. If the compute node
+    # was offline and could not fetch dinov2 pretrained weights, a backbone left in 'missing'
+    # here means it is RANDOM -> poses would be garbage. Cache dinov2_vitl14_pretrain.pth into
+    # $TORCH_HOME/hub/checkpoints to avoid that.
+    bb = [k for k in missing if any(t in k for t in
+          ("aggregator", "backbone", "patch_embed", "blocks", "dinov2", "frame_", "global_"))]
+    print(f"[panovggt] ckpt tensors={len(sd)} | missing={len(missing)} "
+          f"(backbone-ish missing={len(bb)}) | unexpected={len(unexpected)}")
+    if bb:
+        print("  WARNING backbone keys MISSING from ckpt (random unless dinov2 cached):", bb[:5])
     return model
 
 
