@@ -5,21 +5,19 @@ argus_infer.py — overlap_probe inference shim for Realsee Argus (ECCV'26).
 COPY THIS FILE INTO THE ARGUS CODE REPO as  overlap_probe_infer.py
 (repo: https://github.com/realsee-developer/Argus  — NOT the RealSee3D dataset repo).
 
-It reads a folder of equirectangular panoramas and writes  <out>/pred.npz  with key
-`poses` of shape (N,4,4): camera-to-world, in the SAME (sorted) order as the input files —
-exactly the contract overlap_probe/adapters.py expects.
+Reads a folder of equirectangular panoramas, writes  <out>/pred.npz  with key `poses` of
+shape (N,4,4): camera-to-world, sorted input order — the contract overlap_probe/adapters.py wants.
 
-Built from the repo's documented API:
+Repo's documented API:
     from argus.models.argus import Argus
     from argus.utils.pose_enc import pose_encoding_to_extri360
-    pred = model(images[S,3,H,W in 0..1]) ; extr,conf = pose_encoding_to_extri360(pred["pose_enc"])
-`extr` is a world-to-camera extrinsic (VGGT convention); we invert it to camera-to-world.
+    pred = model(images[S,3,H,W in 0..1]); extr,conf = pose_encoding_to_extri360(pred["pose_enc"])
+`extr` is world-to-camera (VGGT convention); we invert to camera-to-world.
 
 Env knobs (set by the SLURM script):
-    ARGUS_CKPT      path to argus_realsee3d.pt   (else tries HF download; needs `hf auth login`)
-    ARGUS_H         ERP input height (width = 2*H). default 518 (patch-14 friendly, 2:1).
-    ARGUS_POSE_C2W  set to 1 if pose_encoding_to_extri360 already returns camera-to-world
-                    (then we skip the inversion). Leave unset for the default w2c assumption.
+    ARGUS_CKPT      path to argus_realsee3d.pt  (else HF download; needs `hf auth login`)
+    ARGUS_H         ERP input height (width=2*H). default 518 (patch-14 friendly, 2:1).
+    ARGUS_POSE_C2W  set to 1 if pose_encoding_to_extri360 already returns camera-to-world.
 """
 import argparse, glob, os
 from pathlib import Path
@@ -42,15 +40,15 @@ def load_erp(paths, H, W):
 def normalize_poses(extr, invert):
     """extr: (...,3,4) or (...,4,4). Return (S,4,4). invert=True treats input as w2c->c2w."""
     extr = np.asarray(extr, float)
-    while extr.ndim > 3:            # squeeze any leading batch dims
+    while extr.ndim > 3:
         extr = extr[0]
     S = extr.shape[0]
     out = np.tile(np.eye(4), (S, 1, 1))
     for i in range(S):
         R = extr[i][:3, :3]; t = extr[i][:3, 3]
-        if invert:                 # world-to-camera -> camera-to-world
+        if invert:
             out[i, :3, :3] = R.T; out[i, :3, 3] = -R.T @ t
-        else:                      # already camera-to-world
+        else:
             out[i, :3, :3] = R; out[i, :3, 3] = t
     return out
 
@@ -76,7 +74,14 @@ def main():
                              filename="argus_realsee3d.pt")
     model = Argus(reorder_by_learning_ref=True, restore_metric_scale=True)
     sd = torch.load(mp, map_location="cpu")
-    model.load_state_dict(sd["model"] if "model" in sd else sd, strict=False)
+    sd = sd["model"] if isinstance(sd, dict) and "model" in sd else sd
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    bb = [k for k in missing if any(t in k for t in
+          ("aggregator", "backbone", "patch_embed", "blocks", "dinov2"))]
+    print(f"[argus] ckpt tensors={len(sd)} | missing={len(missing)} "
+          f"(backbone-ish missing={len(bb)}) | unexpected={len(unexpected)}")
+    if bb:
+        print("  WARNING backbone keys MISSING (random unless dinov2 cached):", bb[:5])
     model.eval().cuda()
 
     with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
