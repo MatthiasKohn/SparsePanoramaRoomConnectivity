@@ -39,6 +39,27 @@ from experiments.exp18_floor_graph_real import (load_pano, gt2d, get_embedder,
 from experiments.exp29_floor_benchmark import bridge_mask, floors_of
 
 
+def raw_dinov2_embedder(device="cuda", backbone="dinov2_vits14", img=224):
+    """Raw DINOv2 backbone features (NO contrastive door head). Used to test whether the
+    flip failure is specific to the door-tuned head or holds for general-purpose features
+    too — i.e. to preempt 'your features are just bad for this' on the negative result."""
+    import os, torch
+    import numpy as np
+    from torchvision import transforms as T
+    repo = os.environ.get("DINOV2_REPO")
+    bb = (torch.hub.load(repo, backbone, source="local")
+          if (repo and os.path.isdir(repo)) else torch.hub.load("facebookresearch/dinov2", backbone))
+    bb = bb.to(device).eval()
+    tf = T.Compose([T.ToPILImage(), T.Resize((img, img)), T.ToTensor(),
+                    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+
+    def embed(crop_rgb):
+        x = tf(np.asarray(crop_rgb, dtype="uint8"))[None].to(device)
+        with torch.no_grad():
+            return bb(x)[0].cpu().numpy()
+    return embed
+
+
 def emb_scores(embed, panoA, panoB, depthA, az_a_deg, m, mflip):
     """Return (cos_direct, cos_flip): A's through-door crop vs B-crops at the reprojected
     centroid under each candidate pose. Mirrors exp18.side_pref_embedding but exposes the
@@ -136,7 +157,10 @@ def main(a):
     root = Path(a.root)
     home_ids = Path(a.homes).read_text().split() if Path(a.homes).exists() \
         else a.homes.split(",")
-    embed = get_embedder(a.ckpt or a.embed, device=a.device)
+    embed = raw_dinov2_embedder(device=a.device) if a.raw_embed \
+        else get_embedder(a.ckpt or a.embed, device=a.device)
+    if a.raw_embed:
+        print("[raw DINOv2 backbone features — no contrastive head]")
 
     rows = []
     for hid in home_ids:
@@ -214,6 +238,8 @@ if __name__ == "__main__":
     ap.add_argument("--depth_sub", default="dap_depth/depth_meters")
     ap.add_argument("--ckpt", default=None)
     ap.add_argument("--embed", default=None, help="'selftest' for CPU plumbing check")
+    ap.add_argument("--raw_embed", action="store_true",
+                    help="raw DINOv2 backbone features instead of the trained door head")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--oracle_pose", action="store_true",
                     help="reproject under GT relative pose -> appearance-only test")
