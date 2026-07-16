@@ -70,4 +70,5 @@ python overlap_probe/run_probe.py \
     --root "$ZIND_ROOT" \
     --only "$ONLY" \
     --models "$MODELS_TO_RUN" \
-    --out "$RESULTS_ROOT/overlap_probe"
+    --out "$RESULTS_ROOT/overlap_probe" \
+    --viz

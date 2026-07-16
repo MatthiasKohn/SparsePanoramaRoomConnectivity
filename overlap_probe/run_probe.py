@@ -14,7 +14,7 @@ Validate the harness itself (no external models needed):
 
 Real run (after wiring adapters + setting ARGUS_DIR / PANOVGGT_DIR / VGGT_DIR):
   python overlap_probe/run_probe.py --root $ZIND_ROOT --only scripts/depth_homes.txt \
-      --models argus,panovggt,vggt_tiled
+      --models argus,panovggt --viz
 """
 import os, sys, argparse, csv, tempfile
 from pathlib import Path
@@ -70,13 +70,14 @@ def run(args):
                     if k:
                         strat_rows.append(dict(home=home.name, regime=regime, model=m.name,
                                                overlap=cat, relrot_med=round(val, 3), n_pairs=k))
+                if args.viz:
+                    _viz_scene(scene, pred, mt, out_dir / "viz", m.name)
         if (hi + 1) % 10 == 0:
             print(f"...{hi+1}/{len(homes)} homes")
 
     if not rows:
         sys.exit("no scenes evaluated (check --root / --min_rooms / homes have panos).")
 
-    # ---- write CSVs
     with open(out_dir / "probe_scenes.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
     if strat_rows:
@@ -84,12 +85,10 @@ def run(args):
             w = csv.DictWriter(f, fieldnames=list(strat_rows[0].keys()))
             w.writeheader(); w.writerows(strat_rows)
 
-    # ---- aggregate + print headline table
     print("\n" + "=" * 78)
     print(f"{'model':12} {'regime':7} {'#sc':>4} {'ATEnorm med':>12} {'relRot med':>11} "
           f"{'|log s| med':>11}")
     print("-" * 78)
-    agg = {}
     for m in sorted({r["model"] for r in rows}):
         for regime in ("dense", "sparse"):
             sub = [r for r in rows if r["model"] == m and r["regime"] == regime]
@@ -98,7 +97,6 @@ def run(args):
             an = float(np.median([r["ate_norm"] for r in sub]))
             rr = float(np.median([r["relrot_med"] for r in sub]))
             ls = float(np.median([r["logscale_abs"] for r in sub]))
-            agg[(m, regime)] = (an, rr, ls, len(sub))
             print(f"{m:12} {regime:7} {len(sub):4d} {an:12.3f} {rr:11.2f} {ls:11.3f}")
     print("=" * 78)
     print("READ: for each model, sparse vs dense. A model that SOLVES our setting keeps "
@@ -145,6 +143,36 @@ def _plots(rows, strat_rows, out_dir):
         plt.close(fig)
 
 
+def _viz_scene(scene, pred, mt, viz_dir, model_name):
+    """Top-down overlay: GT camera centres vs Sim3-aligned predicted centres, coloured by room.
+    Good scene -> predicted 'x' land on the GT circles; failure -> they scatter/rotate away.
+    Also dumps the raw poses so plots can be regenerated offline without re-running the model."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    viz_dir.mkdir(parents=True, exist_ok=True)
+    Cg = scene.gt_c2w[:, :3, 3]; Cp = pred.poses_c2w[:, :3, 3]
+    s, R, t = M.umeyama(Cp, Cg, with_scale=True)
+    Ca = (s * (R @ Cp.T).T) + t
+    rooms = sorted(set(scene.rooms)); cmap = plt.get_cmap("tab20")
+    col = {r: cmap(i % 20) for i, r in enumerate(rooms)}
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for i in range(scene.n):
+        c = col[scene.rooms[i]]
+        ax.plot([Cg[i, 0], Ca[i, 0]], [Cg[i, 2], Ca[i, 2]], "-", color="0.7", lw=0.8, zorder=1)
+        ax.scatter(Cg[i, 0], Cg[i, 2], s=90, color=c, edgecolor="k", lw=0.6, zorder=3)
+        ax.scatter(Ca[i, 0], Ca[i, 2], s=70, marker="x", color=c, lw=2, zorder=3)
+    ax.set_aspect("equal"); ax.set_xlabel("x (m)"); ax.set_ylabel("z (m)")
+    ax.set_title(f"{scene.home}/{scene.regime}  {model_name}\n"
+                 f"o GT   x pred(Sim3-aligned)   relRot={mt['relrot_med_deg']:.1f} deg  "
+                 f"ATEnorm={mt['ate_norm']:.2f}")
+    p = viz_dir / f"{scene.home}_{scene.regime}_{model_name}.png"
+    fig.tight_layout(); fig.savefig(p, dpi=120); plt.close(fig)
+    np.savez(viz_dir / f"{scene.home}_{scene.regime}_{model_name}.npz",
+             gt_c2w=scene.gt_c2w, pred_c2w=pred.poses_c2w,
+             rooms=np.array(scene.rooms), stems=np.array(scene.stems))
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True, help="ZInD full_dataset root ($ZIND_ROOT)")
@@ -154,4 +182,6 @@ if __name__ == "__main__":
     ap.add_argument("--models", default="oracle,noisy",
                     help="comma: oracle,noisy,argus,panovggt,vggt_tiled")
     ap.add_argument("--out", default="results/overlap_probe")
+    ap.add_argument("--viz", action="store_true",
+                    help="save per-scene top-down GT-vs-pred overlays (+pose npz) under out/viz/")
     run(ap.parse_args())
