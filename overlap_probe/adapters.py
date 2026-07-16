@@ -12,13 +12,12 @@ evaluation harness (metrics.py) is gauge-robust, so a model may return poses in 
 scale; metric models are additionally scored on scale error.
 
 The two ORACLE adapters need no external code and validate the whole pipeline end-to-end
-(OracleModel must give ~0 error; NoisyOracle a controlled non-zero error). The three real
-adapters are thin SUBPROCESS wrappers: they dump the scene's images to a temp folder, invoke
-the model's own inference entry point, and read back a standard `pred.npz` with key `poses`
-of shape (N,4,4). Fill in the two marked lines per model once its repo is on the machine; the
-harness never changes.
+(OracleModel must give ~0 error; NoisyOracle a controlled non-zero error). The real adapters
+are thin SUBPROCESS wrappers: they dump the scene's images to a temp folder, invoke the model's
+own inference (via overlap_probe_infer.py copied into the model repo), and read back a standard
+`pred.npz` with key `poses` of shape (N,4,4) camera-to-world.
 """
-import os, subprocess, tempfile, shutil
+import os, subprocess, shutil
 from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
@@ -53,7 +52,6 @@ class OracleModel(PoseModel):
     def predict(self, scene, workdir):
         P = scene.gt_c2w.copy()
         if self.foreign_frame:
-            # arbitrary global rotation + translation + scale: metrics must absorb it
             th = 0.7
             G = np.eye(4)
             G[:3, :3] = np.array([[np.cos(th), 0, np.sin(th)],
@@ -88,7 +86,7 @@ class _SubprocModel(PoseModel):
     """Common plumbing: stage images -> run a command -> load workdir/pred.npz['poses']."""
     entry_env = None      # env var that must point at the model's inference script/dir
     py_env = None         # env var for THIS model's python (its own venv); falls back to 'python'
-    cmd_template = None   # list; use {imgs} {out} placeholders
+    cmd_template = None
 
     def _py(self):
         return os.environ.get(self.py_env, "python") if self.py_env else "python"
@@ -115,40 +113,36 @@ class _SubprocModel(PoseModel):
 
 
 class ArgusModel(_SubprocModel):
-    """Realsee Argus (ECCV'26), metric. Repo: RealseeTechnology/argus-realsee3d (HF).
-    Set env ARGUS_DIR to the checkout. Its inference must write out/pred.npz with 'poses'
-    (N,4,4 c2w, meters). WIRE: replace cmd below with Argus's actual demo/inference call."""
+    """Realsee Argus (ECCV'26), METRIC. CODE repo: github.com/realsee-developer/Argus
+    (NOT the RealSee3D dataset repo). Set ARGUS_DIR to that checkout, and copy
+    overlap_probe/model_wrappers/argus_infer.py into it as `overlap_probe_infer.py`.
+    Weights: HF RealseeTechnology/argus-realsee3d (gated) -> point ARGUS_CKPT at the .pt."""
     name = "argus"; metric = True; entry_env = "ARGUS_DIR"; py_env = "ARGUS_PY"
     available = bool(os.environ.get("ARGUS_DIR"))
 
     def _cmd(self, imgs, out):
-        # <<< WIRE ME: exact script + flags from the Argus repo >>>
-        return [self._py(), "inference.py", "--images", str(imgs), "--out", str(out),
-                "--save_poses_npz", str(out / "pred.npz")]
+        return [self._py(), "overlap_probe_infer.py", "--images", str(imgs), "--out", str(out)]
 
 
 class PanoVGGTModel(_SubprocModel):
-    """PanoVGGT (CVPR'26), panoramic VGGT. Set env PANOVGGT_DIR. Typically NOT metric (scale
-    up to Sim3). WIRE its demo to emit out/pred.npz['poses'] (N,4,4)."""
+    """PanoVGGT (CVPR'26). Repo: github.com/YijingGuo-June/PanoVGGT. NOT metric (Sim3 scale).
+    Set PANOVGGT_DIR to the checkout; copy overlap_probe/model_wrappers/panovggt_infer.py into
+    it as `overlap_probe_infer.py`. Set PANOVGGT_CONFIG + PANOVGGT_CKPT (model.pt)."""
     name = "panovggt"; metric = False; entry_env = "PANOVGGT_DIR"; py_env = "PANOVGGT_PY"
     available = bool(os.environ.get("PANOVGGT_DIR"))
 
     def _cmd(self, imgs, out):
-        # <<< WIRE ME: exact script + flags from the PanoVGGT repo >>>
-        return [self._py(), "demo.py", "--img_dir", str(imgs), "--out_dir", str(out)]
+        return [self._py(), "overlap_probe_infer.py", "--images", str(imgs), "--out", str(out)]
 
 
 class VGGTTiledModel(_SubprocModel):
-    """Perspective VGGT (CVPR'25) as a strong overlapping-view baseline: each 360 pano is cut
-    into perspective tiles (see tiling helper below), VGGT runs on the union, and the per-pano
-    pose is recovered from its tiles. Set env VGGT_DIR. Not metric. This is the fair 'generic
-    3D foundation model' reference the reviewers will ask about."""
+    """Perspective VGGT (CVPR'25) baseline (left out for now): each 360 pano is cut into
+    perspective tiles, VGGT runs on the union, per-pano pose recovered from its tiles. Set
+    VGGT_DIR + wire run_vggt_pano.py to emit out/pred.npz['poses'] (N,4,4)."""
     name = "vggt_tiled"; metric = False; entry_env = "VGGT_DIR"; py_env = "VGGT_PY"
     available = bool(os.environ.get("VGGT_DIR"))
 
     def _cmd(self, imgs, out):
-        # <<< WIRE ME: a wrapper that tiles panos (panoproj.e2p), runs VGGT, and writes
-        #     out/pred.npz['poses'] as one (N,4,4) per ORIGINAL pano. >>>
         return [self._py(), "run_vggt_pano.py", "--pano_dir", str(imgs), "--out", str(out)]
 
 
