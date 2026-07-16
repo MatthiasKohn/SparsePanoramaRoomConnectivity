@@ -5,19 +5,18 @@ argus_infer.py — overlap_probe inference shim for Realsee Argus (ECCV'26).
 COPY THIS FILE INTO THE ARGUS CODE REPO as  overlap_probe_infer.py
 (repo: https://github.com/realsee-developer/Argus  — NOT the RealSee3D dataset repo).
 
-Writes <out>/pred.npz with key `poses` (N,4,4) camera-to-world, sorted input order.
+Writes <out>/pred.npz with key `poses` (N,4,4) camera-to-world, in INPUT (sorted-file) order.
 
-Preprocessing MATCHES the official demo_gradio.py exactly (this is critical — Argus is trained
-on a vertically-CROPPED, low-res ERP; feeding a full-FOV pano gives random poses):
-    resize to (W=ARGUS_W, H=W//2) then crop rows [H*crop : H*(1-crop)]  (default W=560, crop=0.15
-    -> final input 196x560). pose_encoding_to_extri360 returns world-to-camera OpenCV extrinsics;
-    we invert to c2w. reorder_by_learning_ref MUST be False so poses stay in input order.
+Two things are essential and both come straight from the Argus source:
+  1. PREPROCESS exactly like demo_gradio.load_and_preprocess_images: resize to (W, W//2) then
+     crop rows [H*crop : H*(1-crop)]  (W=560, crop=0.15 -> 196x560). Full-FOV panos give garbage.
+  2. reorder_by_learning_ref=True is the TRAINED config (False -> degenerate poses). With True the
+     aggregator reorders views reference-first, so pose_enc comes out in order [r, 0..S-1 excl r]
+     (see heads/utils.reorder_by_reference) and predictions["ref_idx"] gives r. We INVERT that
+     permutation to restore input order, so poses[i] <-> images[i] for the GT-aligned metrics.
+pose_encoding_to_extri360 returns world-to-camera OpenCV extrinsics; we invert to c2w.
 
-Env knobs (SLURM script):
-    ARGUS_CKPT      path to argus_realsee3d.pt (else HF download)
-    ARGUS_W         ERP target WIDTH (height=W//2). default 560 (demo default).
-    ARGUS_CROP      vertical crop ratio. default 0.15 (demo default).
-    ARGUS_POSE_C2W  set 1 if pose_encoding_to_extri360 already returns camera-to-world.
+Env: ARGUS_CKPT, ARGUS_W (=560), ARGUS_CROP (=0.15), ARGUS_POSE_C2W (=1 to skip w2c->c2w).
 """
 import argparse, glob, os
 from pathlib import Path
@@ -30,16 +29,14 @@ from argus.utils.pose_enc import pose_encoding_to_extri360
 
 
 def load_erp(paths, target_w, crop_ratio):
-    """Replicates demo_gradio.load_and_preprocess_images: resize to (W, W//2), then crop the
-    top/bottom crop_ratio of the height. Returns (S,3,Hc,W) float in [0,1], RGB."""
     W = target_w; H = target_w // 2
     y0, y1 = int(H * crop_ratio), int(H * (1 - crop_ratio))
     ims = []
     for p in paths:
-        im = Image.open(p).convert("RGB").resize((W, H), Image.BILINEAR)   # PIL: (width,height)
-        arr = np.asarray(im)[y0:y1, :, :]                                  # vertical crop
+        im = Image.open(p).convert("RGB").resize((W, H), Image.BILINEAR)
+        arr = np.asarray(im)[y0:y1, :, :]
         ims.append(torch.from_numpy(arr.copy()).float() / 255.0)
-    return torch.stack(ims).permute(0, 3, 1, 2).contiguous()              # (S,3,Hc,W)
+    return torch.stack(ims).permute(0, 3, 1, 2).contiguous()   # (S,3,Hc,W)
 
 
 def normalize_poses(extr, invert):
@@ -76,9 +73,7 @@ def main():
         from huggingface_hub import hf_hub_download
         mp = hf_hub_download(repo_id="RealseeTechnology/argus-realsee3d",
                              filename="argus_realsee3d.pt")
-    # False keeps output views in INPUT order (True reorders to reference-first, which breaks
-    # our poses[i] <-> images[i] correspondence against external GT).
-    model = Argus(reorder_by_learning_ref=False, restore_metric_scale=True)
+    model = Argus(reorder_by_learning_ref=True, restore_metric_scale=True)
     sd = torch.load(mp, map_location="cpu")
     sd = sd["model"] if isinstance(sd, dict) and "model" in sd else sd
     missing, unexpected = model.load_state_dict(sd, strict=False)
@@ -92,13 +87,26 @@ def main():
         pred = model(imgs.cuda())
     extr, _conf = pose_encoding_to_extri360(pose_encoding=pred["pose_enc"])
     extr = extr.float().cpu().numpy()
+    while extr.ndim > 3:                      # [B,S,4,4] -> [S,4,4]
+        extr = extr[0]
+    S = extr.shape[0]
+
+    # Undo the reference-first reordering to restore INPUT order.
+    ref_note = "none"
+    if "ref_idx" in pred and S > 1:
+        r = int(np.asarray(pred["ref_idx"].detach().cpu()).flatten()[0])
+        perm = [r] + [i for i in range(S) if i != r]   # == reorder_by_reference order
+        inv = np.argsort(perm)                          # reordered-position -> input slot
+        extr = extr[inv]
+        ref_note = f"r={r}"
+
     invert = os.environ.get("ARGUS_POSE_C2W", "") not in ("1", "true", "True")
     poses = normalize_poses(extr, invert=invert)
 
     Path(a.out).mkdir(parents=True, exist_ok=True)
     np.savez(os.path.join(a.out, "pred.npz"), poses=poses.astype(np.float64))
     print(f"[argus] wrote poses {poses.shape} for {len(paths)} images "
-          f"(input {tuple(imgs.shape)} invert_w2c={invert})")
+          f"(input {tuple(imgs.shape)} invert_w2c={invert} unreorder={ref_note})")
 
 
 if __name__ == "__main__":
