@@ -103,7 +103,7 @@ class _SubprocModel(PoseModel):
         # Isolate the model's own venv: the harness runs under a different env (roomconn +
         # cineca-ai module) whose PYTHONPATH would otherwise SHADOW the model venv's torch.
         env = os.environ.copy()
-        for var in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+        for var in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "LD_LIBRARY_PATH"):
             env.pop(var, None)
         try:
             subprocess.run(cmd, check=True, cwd=os.environ.get(self.entry_env, "."),
