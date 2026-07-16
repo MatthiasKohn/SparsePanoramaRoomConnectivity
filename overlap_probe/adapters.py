@@ -100,9 +100,14 @@ class _SubprocModel(PoseModel):
             shutil.copy(p, imgs / f"{k:03d}_{Path(p).stem}.jpg")
         out = workdir / "out"; out.mkdir(exist_ok=True)
         cmd = self._cmd(imgs, out)
+        # Isolate the model's own venv: the harness runs under a different env (roomconn +
+        # cineca-ai module) whose PYTHONPATH would otherwise SHADOW the model venv's torch.
+        env = os.environ.copy()
+        for var in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+            env.pop(var, None)
         try:
             subprocess.run(cmd, check=True, cwd=os.environ.get(self.entry_env, "."),
-                           timeout=1800)
+                           timeout=1800, env=env)
             data = np.load(out / "pred.npz")
             poses = data["poses"].astype(float)
             assert poses.shape == (scene.n, 4, 4), f"expected {(scene.n,4,4)}, got {poses.shape}"
