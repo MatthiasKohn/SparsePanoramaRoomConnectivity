@@ -12,7 +12,7 @@ Repo's documented API:
     from argus.models.argus import Argus
     from argus.utils.pose_enc import pose_encoding_to_extri360
     pred = model(images[S,3,H,W in 0..1]); extr,conf = pose_encoding_to_extri360(pred["pose_enc"])
-`extr` is world-to-camera (VGGT convention); we invert to camera-to-world.
+pose_encoding_to_extri360 returns world-to-camera OpenCV extrinsics [B,S,4,4]; we invert to c2w.
 
 Env knobs (set by the SLURM script):
     ARGUS_CKPT      path to argus_realsee3d.pt  (else HF download; needs `hf auth login`)
@@ -33,7 +33,7 @@ def load_erp(paths, H, W):
     ims = []
     for p in paths:
         im = Image.open(p).convert("RGB").resize((W, H), Image.BILINEAR)
-        ims.append(torch.from_numpy(np.asarray(im)).float() / 255.0)
+        ims.append(torch.from_numpy(np.asarray(im).copy()).float() / 255.0)
     return torch.stack(ims).permute(0, 3, 1, 2).contiguous()   # [S,3,H,W]
 
 
@@ -72,7 +72,10 @@ def main():
         from huggingface_hub import hf_hub_download
         mp = hf_hub_download(repo_id="RealseeTechnology/argus-realsee3d",
                              filename="argus_realsee3d.pt")
-    model = Argus(reorder_by_learning_ref=True, restore_metric_scale=True)
+    # reorder_by_learning_ref MUST be False for us: True permutes the output views (puts the
+    # learned reference first), breaking poses[i] <-> images[i] correspondence and making every
+    # pairwise pose comparison random. We need input order preserved for the GT-aligned metrics.
+    model = Argus(reorder_by_learning_ref=False, restore_metric_scale=True)
     sd = torch.load(mp, map_location="cpu")
     sd = sd["model"] if isinstance(sd, dict) and "model" in sd else sd
     missing, unexpected = model.load_state_dict(sd, strict=False)
