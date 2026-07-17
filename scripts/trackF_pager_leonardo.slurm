@@ -27,8 +27,10 @@ cd "$PROJECT_ROOT"
 PAGER_DIR="${PAGER_DIR:-$HOME/projects/PaGeR}"
 PAGER_PY="${PAGER_PY:-$WORK/envs/fmodels/bin/python}"
 PAGER_OUT="${PAGER_OUT:-$WORK/results/pager_zind}"
+# Restrict to a home list (default the 20 held-out homes) — do NOT run all ~67k panos.
+export PAGER_ZIND_HOMES="${PAGER_ZIND_HOMES:-$PROJECT_ROOT/scripts/depth_homes.txt}"
 
-echo "PaGeR: $PAGER_DIR  py=$PAGER_PY  out=$PAGER_OUT  zind=$ZIND_ROOT"
+echo "PaGeR: $PAGER_DIR  py=$PAGER_PY  out=$PAGER_OUT  zind=$ZIND_ROOT  homes=$PAGER_ZIND_HOMES"
 
 # 1) run PaGeR inference (indoor scale head) — from the PaGeR repo, its own venv, offline
 ( cd "$PAGER_DIR" && env -u PYTHONPATH -u LD_LIBRARY_PATH "$PAGER_PY" inference.py \
