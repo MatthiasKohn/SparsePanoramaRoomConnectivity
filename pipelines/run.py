@@ -1,8 +1,8 @@
 """Unified pipeline entry point.
 
 This is a bridge CLI: it exposes the new dataset-agnostic interface while
-delegating connectivity scoring to the validated legacy evaluator until that
-logic is fully migrated into ``sparsepano.metrics``.
+delegating connectivity scoring to the migrated ``pipelines.connectivity``
+implementation (formerly exp28). Other stages are scaffolded (see run_skipped_stage).
 """
 
 from __future__ import annotations
