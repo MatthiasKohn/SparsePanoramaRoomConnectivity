@@ -25,15 +25,15 @@ contribution we build on.
 ## Run it
 Validate the harness with zero external code (oracle must score ~0, noisy small non-zero):
 ```
-python overlap_probe/run_probe.py --root $ZIND_ROOT --only scripts/depth_homes.txt \
+python -m benchmarks.overlap_probe.run_probe --root $ZIND_ROOT --only scripts/depth_homes.txt \
     --models oracle,noisy --limit 8
 ```
 Real run (after wiring adapters, below):
 ```
-python overlap_probe/run_probe.py --root $ZIND_ROOT --only scripts/depth_homes.txt \
+python -m benchmarks.overlap_probe.run_probe --root $ZIND_ROOT --only scripts/depth_homes.txt \
     --models argus,panovggt,vggt_tiled --out results/overlap_probe
 ```
-Leonardo: `sbatch overlap_probe/slurm/probe_leonardo.slurm`.
+Leonardo: `sbatch benchmarks/overlap_probe/slurm/probe_leonardo.slurm`.
 
 ## Wiring a real model (5 minutes each)
 Each real adapter in `adapters.py` is a subprocess wrapper. You only change its `_cmd()` to the

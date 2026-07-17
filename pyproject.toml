@@ -25,5 +25,4 @@ dependencies = [
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
-include = ["sparsepano*", "pipelines*"]
-
+include = ["sparsepano*", "pipelines*", "benchmarks*"]

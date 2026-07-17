@@ -44,7 +44,7 @@ weights/          Local model weights/checkpoints; gitignored unless explicitly 
 
 ## Completed Cleanup
 
-- Deleted top-level `former-former-src/`; implementations now live in `sparsepano/{datasets,geometry,doors,pose,gs,viz}`.
+- Deleted top-level `former src/`; implementations now live in `sparsepano/{datasets,geometry,doors,pose,gs,viz}`.
 - Deleted top-level `experiments/`; migrated implementations live in `pipelines/`, archived one-offs in
   `legacy/experiments/`.
 - Moved `overlap_probe/` to `benchmarks/overlap_probe/`.
@@ -85,14 +85,14 @@ Status values:
 | `runs/`, `results/`, `logs/` | generated | Generated outputs; final reports go under `results/<run_id>/`. |
 | `torchhub.tgz` | generated | Transfer artifact; ignored. |
 | `best.pt`, `best_hardneg.pt`, `door_encoder.pt` | generated | Preserve; later move/copy to `weights/` with LFS/ignore policy. |
-| `former-former-src/zind.py` | migrate | `sparsepano/datasets/zind.py`; keep compatibility until old imports are gone. |
-| `former-former-src/stanford.py` | migrate | Candidate `sparsepano/datasets/stanford.py`; if stale, move to legacy with `TODO(codex)`. |
-| `former-former-src/providers.py` | migrate | `sparsepano/geometry/providers.py`; dataset access must go through adapters. |
-| `former-former-src/panoproj.py` | migrate | `sparsepano/geometry/panoproj.py`. |
-| `former-former-src/geom.py` | migrate | `sparsepano/geometry/geom.py`. |
-| `former-former-src/pose.py`, `sparsepano/pose/posegraph.py`, `sparsepano/pose/door_pose.py`, `former-former-src/register.py`, `former-former-src/matching.py` | migrate | `sparsepano/pose/`. |
-| `former-former-src/doors.py`, `sparsepano/doors/door_semantic.py`, `former-former-src/door_dataset.py`, `former-former-src/contrastive.py`, `former-former-src/hard_neg.py`, `former-former-src/aperture.py` | migrate | `sparsepano/doors/`. |
-| `former-former-src/gs_optim.py`, `sparsepano/gs/gsplat_init.py` | migrate | `sparsepano/gs/`. |
+| `former src/zind.py` | migrate | `sparsepano/datasets/zind.py`; keep compatibility until old imports are gone. |
+| `former src/stanford.py` | migrate | Candidate `sparsepano/datasets/stanford.py`; if stale, move to legacy with `TODO(codex)`. |
+| `former src/providers.py` | migrate | `sparsepano/geometry/providers.py`; dataset access must go through adapters. |
+| `former src/panoproj.py` | migrate | `sparsepano/geometry/panoproj.py`. |
+| `former src/geom.py` | migrate | `sparsepano/geometry/geom.py`. |
+| `former src/pose.py`, `sparsepano/pose/posegraph.py`, `sparsepano/pose/door_pose.py`, `former src/register.py`, `former src/matching.py` | migrate | `sparsepano/pose/`. |
+| `former src/doors.py`, `sparsepano/doors/door_semantic.py`, `former src/door_dataset.py`, `former src/contrastive.py`, `former src/hard_neg.py`, `former src/aperture.py` | migrate | `sparsepano/doors/`. |
+| `former src/gs_optim.py`, `sparsepano/gs/gsplat_init.py` | migrate | `sparsepano/gs/`. |
 | `tools/viewer.py` | migrate | `sparsepano/viz/` or `tools/` wrapper. |
 | `overlap_probe/` | migrate | Move unchanged to `benchmarks/overlap_probe/`; fix external paths only. |
 | `experiments/exp09_build_door_dataset.py` | pipeline | `pipelines/build_door_dataset.py`. |

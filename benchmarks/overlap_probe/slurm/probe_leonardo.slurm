@@ -66,7 +66,7 @@ for path in "${REQUIRED[@]}"; do
     fi
 done
 
-python overlap_probe/run_probe.py \
+python -m benchmarks.overlap_probe.run_probe \
     --root "$ZIND_ROOT" \
     --only "$ONLY" \
     --models "$MODELS_TO_RUN" \

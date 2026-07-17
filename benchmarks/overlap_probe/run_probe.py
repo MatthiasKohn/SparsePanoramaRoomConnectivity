@@ -8,19 +8,19 @@ SPARSE, it solves our setting (and our door pipeline is obsolete). If it blows u
 while staying low on DENSE, we have a real, quantified gap to build on.
 
 Validate the harness itself (no external models needed):
-  python overlap_probe/run_probe.py --root $ZIND_ROOT --only scripts/depth_homes.txt \
+  python -m benchmarks.overlap_probe.run_probe --root $ZIND_ROOT --only scripts/depth_homes.txt \
       --models oracle,noisy --limit 5
   -> oracle: ate_norm~0, relrot~0 ;  noisy: small but non-zero, and sparse>=dense.
 
 Real run (after wiring adapters + setting ARGUS_DIR / PANOVGGT_DIR / VGGT_DIR):
-  python overlap_probe/run_probe.py --root $ZIND_ROOT --only scripts/depth_homes.txt \
+  python -m benchmarks.overlap_probe.run_probe --root $ZIND_ROOT --only scripts/depth_homes.txt \
       --models argus,panovggt --viz
 """
 import os, sys, argparse, csv, tempfile
 from pathlib import Path
 import numpy as np
 
-from overlap_probe import common, overlap as ov, metrics as M, adapters as A
+from benchmarks.overlap_probe import common, overlap as ov, metrics as M, adapters as A
 
 
 def run(args):
