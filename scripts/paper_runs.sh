@@ -15,7 +15,7 @@ VAL=runs/hardneg/val_homes.txt            # FROZEN 197-home test list — never 
 #    best.pt was epoch 15 of a run killed at 32/60 — rerun with a longer limit and
 #    re-submit on timeout (--resume). ~2 h/16 epochs on A100 => request 12-24 h.
 # =============================================================================
-# sbatch --time=24:00:00 --wrap "python experiments/exp10_train_contrastive.py \
+# sbatch --time=24:00:00 --wrap "python -m pipelines.train_embedding \
 #     --data data_doorpairs --out runs/hardneg2 \
 #     --epochs 60 --bs 128 --lr 3e-4 --wd 1e-4 --eval_every 2 --workers 8 \
 #     --val_frac 0.15 --seed 0 --unfreeze --hard_neg --homes_per_batch 8"
@@ -36,26 +36,26 @@ VAL=runs/hardneg/val_homes.txt            # FROZEN 197-home test list — never 
 #    Detections cache to results/gtfree/det_cache, so scoring re-runs are free.
 #    ~8 SegFormer passes/pano; budget a few hours for 197 homes on A100.
 # =============================================================================
-# python experiments/exp28_gtfree_connectivity.py --root $ZIND_ROOT --only $VAL \
+# python -m pipelines.connectivity --root $ZIND_ROOT --only $VAL \
 #     --ckpt runs/hardneg/best.pt --doors detected --scoring assign --max 200 --tag hn_det
 # # oracle-door control on the SAME homes (paired comparison for the paper table):
-# python experiments/exp28_gtfree_connectivity.py --root $ZIND_ROOT --only $VAL \
+# python -m pipelines.connectivity --root $ZIND_ROOT --only $VAL \
 #     --ckpt runs/hardneg/best.pt --doors gt --scoring assign --max 200 --tag hn_gt
 # # sensitivity: include windows as candidates / plain max scoring
-# python experiments/exp28_gtfree_connectivity.py --root $ZIND_ROOT --only $VAL \
+# python -m pipelines.connectivity --root $ZIND_ROOT --only $VAL \
 #     --ckpt runs/hardneg/best.pt --doors detected --scoring max --max 200 --tag hn_det_max
 
 # =============================================================================
 # C) Ablation grid (G5) — fills the method table.
 # =============================================================================
 # # 2x2 {frozen, unfreeze} x {std, hard-neg} (runs/full frozen-std exists; add:)
-# python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/frozen_hn \
+# python -m pipelines.train_embedding --data data_doorpairs --out runs/frozen_hn \
 #     --epochs 60 --bs 128 --lr 3e-4 --eval_every 2 --workers 8 --hard_neg --homes_per_batch 8
-# python experiments/exp10_train_contrastive.py --data data_doorpairs --out runs/ft_std \
+# python -m pipelines.train_embedding --data data_doorpairs --out runs/ft_std \
 #     --epochs 60 --bs 128 --lr 3e-4 --eval_every 2 --workers 8 --unfreeze
 # for run in full frozen_hn ft_std hardneg2; do
 #   for m in max assign; do
-#     python experiments/exp23_heldout_eval.py --root $ZIND_ROOT --only $VAL \
+#     python -m pipelines.heldout_eval --root $ZIND_ROOT --only $VAL \
 #         --ckpt runs/$run/best.pt --scoring $m --tag ${run}_${m} --max 200
 #   done
 # done
@@ -64,12 +64,12 @@ VAL=runs/hardneg/val_homes.txt            # FROZEN 197-home test list — never 
 # bash scripts/scaling_curve.sh $ZIND_ROOT
 #
 # # crop fov 50 vs 70 (rebuild dataset, retrain, eval):
-# python experiments/exp09_build_door_dataset.py --zind_root $ZIND_ROOT --out data_doorpairs_fov50 --fov 50
-# python experiments/exp10_train_contrastive.py --data data_doorpairs_fov50 --out runs/hn_fov50 \
+# python -m pipelines.build_door_dataset --zind_root $ZIND_ROOT --out data_doorpairs_fov50 --fov 50
+# python -m pipelines.train_embedding --data data_doorpairs_fov50 --out runs/hn_fov50 \
 #     --epochs 60 --bs 128 --lr 3e-4 --eval_every 2 --workers 8 --unfreeze --hard_neg --homes_per_batch 8
 #
 # # mechanism probe (door-region vs through-region masking) + saliency figures:
-# python experiments/exp15_match_saliency.py --data data_doorpairs --ckpt runs/hardneg/best.pt --grid 12
+# python legacy/experiments/exp15_match_saliency.py --data data_doorpairs --ckpt runs/hardneg/best.pt --grid 12
 
 # =============================================================================
 # D) LOCAL laptop GPU — depth for the pose benchmark (G2), then exp29 (CPU).
@@ -83,7 +83,7 @@ VAL=runs/hardneg/val_homes.txt            # FROZEN 197-home test list — never 
 #       --output_dir ../data/zind/full_dataset/$H/dap_depth --pattern "*.jpg"
 # done < scripts/depth_homes.txt
 # # 3. the pose/flip benchmark table (CPU + small GPU for the embedding):
-# python experiments/exp29_floor_benchmark.py --root ../data/zind/full_dataset \
+# python -m pipelines.pose_layout --root ../data/zind/full_dataset \
 #     --homes scripts/depth_homes.txt --ckpt runs/hardneg/best.pt --device cuda --tag hn
 
 # =============================================================================
@@ -92,10 +92,10 @@ VAL=runs/hardneg/val_homes.txt            # FROZEN 197-home test list — never 
 # =============================================================================
 # python scripts/colmap_perspective.py --home ../data/zind/full_dataset/0025 \
 #     --n_views 12 --fov 90 --size 1024
-# python experiments/exp24_colmap_compare.py --home ../data/zind/full_dataset/0025 \
+# python -m pipelines.colmap_compare --home ../data/zind/full_dataset/0025 \
 #     --model ../data/zind/full_dataset/0025/colmap_persp/pano_poses.json
 # #   (mirrored layout / huge error with correct shape? rerun:  --stage recover --flip_x)
-# python experiments/exp27_hybrid_real.py --home ../data/zind/full_dataset/0025 \
+# python -m pipelines.hybrid_real --home ../data/zind/full_dataset/0025 \
 #     --depth_dir ../data/zind/full_dataset/0025/dap_depth/depth_meters \
 #     --ckpt runs/hardneg/best.pt \
 #     --model ../data/zind/full_dataset/0025/colmap_persp/pano_poses.json

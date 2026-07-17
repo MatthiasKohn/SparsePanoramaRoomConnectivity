@@ -5,7 +5,7 @@
 # PREREQ (Leonardo compute nodes have NO internet): cache the model weights ONCE from a
 # LOGIN node, then submit:
 #   source scripts/env_leonardo.sh
-#   HF_HUB_OFFLINE=0 python experiments/exp28_gtfree_connectivity.py \
+#   HF_HUB_OFFLINE=0 python -m pipelines.connectivity \
 #       --home "$ZIND_ROOT/0001" --ckpt "$RUN_ROOT/hardneg/best.pt" --doors detected \
 #       --device cpu --max 1            # downloads DINOv2 + SegFormer into $TORCH_HOME/$HF_HOME
 # Also make sure best.pt + val_homes.txt exist under $RUN_ROOT/hardneg (scp from bwUniCluster).
@@ -29,7 +29,7 @@ CKPT="${CKPT:-$RUN_ROOT/hardneg/best.pt}"
 VAL="${VAL:-$RUN_ROOT/hardneg/val_homes.txt}"
 
 # detector-driven (the headline GT-free number) + oracle-door control (paired table)
-python experiments/exp28_gtfree_connectivity.py --root "$ZIND_ROOT" --only "$VAL" \
+python -m pipelines.connectivity --root "$ZIND_ROOT" --only "$VAL" \
     --ckpt "$CKPT" --doors detected --scoring assign --max 200 --tag hn_det
-python experiments/exp28_gtfree_connectivity.py --root "$ZIND_ROOT" --only "$VAL" \
+python -m pipelines.connectivity --root "$ZIND_ROOT" --only "$VAL" \
     --ckpt "$CKPT" --doors gt --scoring assign --max 200 --tag hn_gt

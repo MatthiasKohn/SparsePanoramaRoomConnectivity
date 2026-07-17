@@ -20,7 +20,7 @@ cd "$PROJECT_ROOT"
 exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 
 DATA="${DATA:-$RESULTS_ROOT/../data_floors}"     # where Track B wrote the floor dataset
-python experiments/exp32_train_distance_head.py \
+python -m pipelines.train_distance_head \
     --data "$DATA" --panos_root "$ZIND_ROOT" \
     --ckpt "$RUN_ROOT/hardneg/best.pt" --out "$RUN_ROOT/dist" \
     --val_homes "$RUN_ROOT/hardneg/val_homes.txt" \

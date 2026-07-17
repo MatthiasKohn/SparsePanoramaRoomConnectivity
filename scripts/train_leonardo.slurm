@@ -25,7 +25,7 @@ RUN_DIR="$RUN_ROOT/$RUN_NAME"
 
 mkdir -p "$RUN_DIR"
 
-python experiments/exp10_train_contrastive.py \
+python -m pipelines.train_embedding \
     --data data_doorpairs \
     --out "$RUN_DIR" \
     --epochs 40 \
@@ -35,7 +35,7 @@ python experiments/exp10_train_contrastive.py \
     --workers "${SLURM_CPUS_PER_TASK:-8}" \
     --unfreeze
 
-python experiments/exp23_heldout_eval.py \
+python -m pipelines.heldout_eval \
     --root "$ZIND_ROOT" \
     --only "$RUN_DIR/val_homes.txt" \
     --ckpt "$RUN_DIR/best.pt" \

@@ -11,11 +11,10 @@ CPU-only, fast (json parsing only).
       --only runs/hardneg/val_homes.txt --top 20
 """
 import sys, os, argparse, csv, json
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pathlib import Path
 from itertools import combinations
 
-from src import zind
+from sparsepano.datasets import zind
 
 
 def floor_stats(jp, floor):

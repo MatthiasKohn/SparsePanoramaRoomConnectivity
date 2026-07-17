@@ -6,6 +6,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
 
 # Virtual environments
 .venv/
@@ -38,6 +39,7 @@ data/
 data_*/
 *_data/
 data_doorpairs/
+data_floors/
 
 # Experiment outputs
 results/
@@ -51,6 +53,7 @@ tensorboard/
 *.pth
 *.ckpt
 checkpoints/
+weights/
 
 # Generated depth / cache artifacts
 depth/

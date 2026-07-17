@@ -17,7 +17,7 @@ module load devel/miniforge
 source scripts/activate_env.sh
 
 ZIND_ROOT="../data/zind/full_dataset"
-python experiments/exp09_build_door_dataset.py \
+python -m pipelines.build_door_dataset \
     --zind_root "$ZIND_ROOT" \
     --out data_doorpairs \
     --fov 70

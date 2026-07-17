@@ -28,7 +28,7 @@ HOMES="${HOMES:-scripts/depth_homes.txt}"
 CKPT="${CKPT:-$RUN_ROOT/hardneg/best.pt}"
 
 echo "############ 1) FLIP-PRIOR DIAGNOSTIC over the 20 benchmark homes ############"
-python experiments/exp33_flip_diagnose.py \
+python -m pipelines.flip_diagnose \
     --root "$ZIND_ROOT" --homes "$HOMES" \
     --ckpt "$CKPT" --device cuda --tag hn
 
@@ -41,7 +41,7 @@ if [ ! -d "$ZIND_ROOT/0025/dap_depth/depth_meters" ]; then
         --input_dir "$ZIND_ROOT/0025/panos" \
         --output_dir "$ZIND_ROOT/0025/dap_depth" --pattern "*.jpg"
 fi
-python experiments/exp29_floor_benchmark.py \
+python -m pipelines.pose_layout \
     --root "$ZIND_ROOT" --homes 0025 \
     --ckpt "$CKPT" --device cuda --tag repro0025
 echo "If 0025 flip_emb is high here but the 20-home mean is ~0.45, the prior works on"

@@ -47,6 +47,6 @@ while read -r H; do
 done < "$HOMES"
 
 # 2) pose/flip benchmark over every now-depth-equipped floor (exp29 reads dap_depth/depth_meters)
-python experiments/exp29_floor_benchmark.py \
+python -m pipelines.pose_layout \
     --root "$ZIND_ROOT" --homes "$HOMES" \
     --ckpt "$CKPT" --device cuda --tag hn

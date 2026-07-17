@@ -27,12 +27,11 @@ cannot absorb a reflection, and the project's empirically-calibrated ZInD
 convention may be the mirror of COLMAP's physical world).
 """
 import sys, os, argparse, json, subprocess
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pathlib import Path
 import numpy as np
 import cv2
 
-from src import panoproj
+from sparsepano.geometry import panoproj
 
 
 # ---------------- stage 1: split ----------------
@@ -168,8 +167,8 @@ def recover(work, flip_x=False, min_tiles=2):
         print(f"    {stem}: {n} tiles, center spread {sp:.3f} (model units){flag}")
     home = work.parent
     print("\nnext:")
-    print(f"  python experiments/exp24_colmap_compare.py --home {home} --model {out}")
-    print(f"  python experiments/exp27_hybrid_real.py --home {home} "
+    print(f"  python -m pipelines.colmap_compare --home {home} --model {out}")
+    print(f"  python -m pipelines.hybrid_real --home {home} "
           f"--depth_dir {home}/dap_depth/depth_meters --ckpt runs/hardneg/best.pt --model {out}")
     return poses
 

@@ -1,0 +1,5 @@
+dataset:
+  name: zind
+  root: ${ZIND_ROOT}
+  heldout_file: ${RUN_ROOT}/hardneg/val_homes.txt
+

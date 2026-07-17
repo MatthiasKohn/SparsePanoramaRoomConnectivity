@@ -47,12 +47,12 @@ if [ -d "$MODEL" ]; then
   echo " registered images:"; ls "$MODEL" 2>/dev/null
   echo ""
   echo " feed to the hybrid pose graph:"
-  echo "   python experiments/exp27_hybrid_real.py --home $HOME_DIR \\"
+  echo "   python -m pipelines.hybrid_real --home $HOME_DIR \\"
   echo "       --depth_dir $HOME_DIR/dap_depth/depth_meters --floor floor_01 \\"
   echo "       --ckpt best.pt --model $MODEL"
   echo ""
   echo " and score coverage/pose vs GT:"
-  echo "   python experiments/exp24_colmap_compare.py --home $HOME_DIR --model $MODEL --floor floor_01"
+  echo "   python -m pipelines.colmap_compare --home $HOME_DIR --model $MODEL --floor floor_01"
   echo "=========================================================="
 else
   echo "mapper produced no model at $MODEL — likely too little overlap between panos"

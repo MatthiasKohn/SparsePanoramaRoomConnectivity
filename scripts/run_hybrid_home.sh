@@ -46,12 +46,12 @@ echo "[2/3] hybrid floor map (door edges + COLMAP + flip prior -> pose graph)"
 ARGS=(--home "$HOME_DIR" --depth_dir "$DEPTH_DIR" --floor "$FLOOR")
 [ -n "$CKPT" ]  && ARGS+=(--ckpt "$CKPT")
 [ -n "$MODEL" ] && ARGS+=(--model "$MODEL")
-python experiments/exp27_hybrid_real.py "${ARGS[@]}"
+python -m pipelines.hybrid_real "${ARGS[@]}"
 
 # ---- 3. connectivity graph (only if an encoder ckpt is given) ----
 if [ -n "$CKPT" ]; then
   echo "[3/3] connectivity graph (assign scoring)"
-  python experiments/exp12_connectivity_graph.py --home "$HOME_DIR" --ckpt "$CKPT" --scoring assign
+  python -m pipelines.connectivity_graph --home "$HOME_DIR" --ckpt "$CKPT" --scoring assign
 else
   echo "[3/3] skipped connectivity graph (no ckpt)"
 fi

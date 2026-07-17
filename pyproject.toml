@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sparsepano-room-connectivity"
+version = "0.1.0"
+description = "Sparse panorama room connectivity, pose, and layout research pipeline."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "pillow",
+  "tqdm",
+  "opencv-python-headless",
+  "transformers>=4.40",
+  "huggingface-hub",
+  "safetensors",
+  "requests",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["sparsepano*", "pipelines*"]
+

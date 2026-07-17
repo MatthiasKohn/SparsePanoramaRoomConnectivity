@@ -17,12 +17,12 @@ EPOCHS=30
 
 for N in $SIZES; do
   echo "=== N=$N homes ==="
-  python experiments/exp09_build_door_dataset.py --zind_root "$ZIND_ROOT" \
+  python -m pipelines.build_door_dataset --zind_root "$ZIND_ROOT" \
       --out data_scale_$N --max_homes $N
-  python experiments/exp10_train_contrastive.py --data data_scale_$N \
+  python -m pipelines.train_embedding --data data_scale_$N \
       --out runs/scale_$N --epochs $EPOCHS --bs 128 --eval_every 5 --workers 8
   echo "--- connectivity on held-out homes (N=$N) ---"
-  python experiments/exp12_connectivity_graph.py --root "$ZIND_ROOT" \
+  python -m pipelines.connectivity_graph --root "$ZIND_ROOT" \
       --only runs/scale_$N/val_homes.txt --ckpt runs/scale_$N/best.pt \
       | tee runs/scale_$N/connectivity.txt
 done
