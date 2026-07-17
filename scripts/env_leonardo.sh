@@ -25,6 +25,10 @@ export HF_HOME="${HF_HOME:-/leonardo_work/EUHPC_D35_121/cache/huggingface}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"          # unset on the login node when caching
 export DINOV2_REPO="${DINOV2_REPO:-$TORCH_HOME/hub/facebookresearch_dinov2_main}"  # local clone -> no GitHub
 export PYTHONUNBUFFERED=1
+# Make the new package layout importable (python -m pipelines.* / sparsepano / benchmarks)
+# without needing an editable install — works offline, independent of cwd.
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+
 export MPLBACKEND=Agg
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-4}}"
 
