@@ -11,13 +11,12 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=05:00:00
-#SBATCH --output=/dev/null
+#SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source "$HOME/projects/SparsePanoramaRoomConnectivity/scripts/env_leonardo.sh"
 cd "$PROJECT_ROOT"
-exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 
 DATA="${DATA:-$RESULTS_ROOT/../data_floors}"     # where Track B wrote the floor dataset
 python -m pipelines.train_distance_head \

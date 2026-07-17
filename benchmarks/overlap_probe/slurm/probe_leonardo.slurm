@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=01:00:00
-#SBATCH --output=overlap_probe_%j.out
+#SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
 
@@ -16,7 +16,6 @@ source "$HOME/projects/SparsePanoramaRoomConnectivity/scripts/env_leonardo.sh"
 
 cd "$PROJECT_ROOT"
 
-exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 
 # --- Model CODE repos (each with overlap_probe_infer.py copied in) -----------------
 # NB: Argus CODE lives in github.com/realsee-developer/Argus — NOT the RealSee3D dataset repo.
@@ -66,9 +65,12 @@ for path in "${REQUIRED[@]}"; do
     fi
 done
 
+DUMP_ARG=""
+[ -n "${DUMP_PLY:-}" ] && DUMP_ARG="--dump_ply $DUMP_PLY"
+
 python -m benchmarks.overlap_probe.run_probe \
     --root "$ZIND_ROOT" \
     --only "$ONLY" \
     --models "$MODELS_TO_RUN" \
-    --out "$RESULTS_ROOT/overlap_probe" \
+    --out "$RESULTS_ROOT/overlap_probe" $DUMP_ARG \
     --viz

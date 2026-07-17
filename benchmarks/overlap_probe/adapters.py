@@ -29,6 +29,8 @@ class Prediction:
     metric: bool = False
     ok: bool = True
     note: str = ""
+    points: "np.ndarray|None" = None    # optional dumped point cloud (M,3), model world frame
+    colors: "np.ndarray|None" = None    # optional per-point RGB (M,3) uint8
 
 
 class PoseModel:
@@ -111,7 +113,10 @@ class _SubprocModel(PoseModel):
             data = np.load(out / "pred.npz")
             poses = data["poses"].astype(float)
             assert poses.shape == (scene.n, 4, 4), f"expected {(scene.n,4,4)}, got {poses.shape}"
-            return Prediction(poses_c2w=poses, metric=self.metric, note="ok")
+            pts = data["points"] if "points" in data.files else None
+            cols = data["colors"] if "colors" in data.files else None
+            return Prediction(poses_c2w=poses, metric=self.metric, note="ok",
+                              points=pts, colors=cols)
         except Exception as e:
             return Prediction(poses_c2w=np.tile(np.eye(4), (scene.n, 1, 1)),
                               metric=self.metric, ok=False, note=f"FAILED: {e}")

@@ -35,6 +35,7 @@ def run(args):
         sys.exit("no available models — try --models oracle,noisy to validate the harness.")
 
     out_dir = Path(args.out); out_dir.mkdir(parents=True, exist_ok=True)
+    _dump_set = set((args.dump_ply or "").replace(",", " ").split())
     rows, strat_rows = [], []
     tmp_root = Path(tempfile.mkdtemp(prefix="overlap_probe_"))
 
@@ -49,6 +50,8 @@ def run(args):
                 continue
             ov.annotate(scene, fl)
             cc = ov.category_counts(scene)
+            want_ply = args.dump_ply and home.name in _dump_set
+            os.environ["DUMP_GEOM"] = "1" if want_ply else ""
             for m in models:
                 wd = tmp_root / f"{home.name}_{regime}_{m.name}"
                 pred = m.predict(scene, wd)
@@ -71,6 +74,8 @@ def run(args):
                                                overlap=cat, relrot_med=round(val, 3), n_pairs=k))
                 if args.viz:
                     _viz_scene(scene, pred, mt, out_dir / "viz", m.name)
+                if want_ply and pred.points is not None:
+                    _dump_cloud(scene, pred, out_dir / "viz" / "ply", m.name)
         if (hi + 1) % 10 == 0:
             print(f"...{hi+1}/{len(homes)} homes")
 
@@ -172,6 +177,42 @@ def _viz_scene(scene, pred, mt, viz_dir, model_name):
              rooms=np.array(scene.rooms), stems=np.array(scene.stems))
 
 
+
+def _write_ply(path, xyz, rgb):
+    xyz = np.asarray(xyz, float); rgb = np.asarray(rgb, np.uint8)
+    with open(path, "w") as f:
+        f.write("ply\nformat ascii 1.0\n")
+        f.write(f"element vertex {len(xyz)}\n")
+        f.write("property float x\nproperty float y\nproperty float z\n")
+        f.write("property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n")
+        for (x, y, z), (r, g, b) in zip(xyz, rgb):
+            f.write(f"{x:.4f} {y:.4f} {z:.4f} {r} {g} {b}\n")
+
+
+def _cam_markers(centres, color, n=400, r=0.08):
+    rng = np.random.default_rng(0)
+    pts = centres[:, None, :] + rng.normal(0, r, (len(centres), n, 3))
+    pts = pts.reshape(-1, 3)
+    return pts, np.tile(np.array(color, np.uint8), (len(pts), 1))
+
+
+def _dump_cloud(scene, pred, ply_dir, model_name):
+    """Write PanoVGGT's reconstruction Sim3-aligned into the GT metric frame, with GT camera
+    positions (red) and predicted camera positions (green, aligned) marked. One .ply per scene."""
+    ply_dir.mkdir(parents=True, exist_ok=True)
+    Cg = scene.gt_c2w[:, :3, 3]; Cp = pred.poses_c2w[:, :3, 3]
+    s, R, t = M.umeyama(Cp, Cg, with_scale=True)
+    P = (s * (R @ pred.points.T).T) + t                     # cloud in GT frame
+    Ca = (s * (R @ Cp.T).T) + t                             # aligned predicted cameras
+    gm_xyz, gm_rgb = _cam_markers(Cg, (255, 40, 40))        # truth cameras = red
+    pm_xyz, pm_rgb = _cam_markers(Ca, (40, 220, 40))        # pred cameras  = green
+    xyz = np.vstack([P, gm_xyz, pm_xyz])
+    rgb = np.vstack([pred.colors[:len(P)], gm_rgb, pm_rgb])
+    out = ply_dir / f"{scene.home}_{scene.regime}_{model_name}.ply"
+    _write_ply(out, xyz, rgb)
+    print(f"  [ply] {out}  ({len(P)} cloud pts; red=GT cams, green=pred cams)")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True, help="ZInD full_dataset root ($ZIND_ROOT)")
@@ -183,4 +224,7 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="results/overlap_probe")
     ap.add_argument("--viz", action="store_true",
                     help="save per-scene top-down GT-vs-pred overlays (+pose npz) under out/viz/")
+    ap.add_argument("--dump_ply", default=None,
+                    help="comma list of home ids -> write PanoVGGT's point cloud (Sim3-aligned to GT, "
+                         "with GT=red/pred=green camera markers) as .ply under out/viz/ply/ for those scenes")
     run(ap.parse_args())

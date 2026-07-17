@@ -10,13 +10,12 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=02:00:00
-#SBATCH --output=/dev/null
+#SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
 
 cd "$SLURM_SUBMIT_DIR"
 source scripts/env_bwunicluster.sh
-exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 
 RUN_NAME="${RUN_NAME:-unfrozen_nohn}"
 RUN_DIR="$RUN_ROOT/$RUN_NAME"

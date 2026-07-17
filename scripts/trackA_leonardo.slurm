@@ -17,13 +17,12 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
-#SBATCH --output=/dev/null
+#SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source "$HOME/projects/SparsePanoramaRoomConnectivity/scripts/env_leonardo.sh"
 cd "$PROJECT_ROOT"
-exec > >(tee -a "$LOG_ROOT/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out") 2>&1
 
 CKPT="${CKPT:-$RUN_ROOT/hardneg/best.pt}"
 VAL="${VAL:-$RUN_ROOT/hardneg/val_homes.txt}"

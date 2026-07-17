@@ -81,7 +81,28 @@ def main():
         raise SystemExit(f"unexpected camera_poses shape {poses.shape}")
 
     Path(a.out).mkdir(parents=True, exist_ok=True)
-    np.savez(os.path.join(a.out, "pred.npz"), poses=poses.astype(np.float64))
+    save = {"poses": poses.astype(np.float64)}
+
+    # Optional (only when DUMP_GEOM=1): also save the reconstructed point cloud + colours, so the
+    # harness can write a .ply for a FEW selected scenes. Downsampled to keep files small.
+    if os.environ.get("DUMP_GEOM", "") in ("1", "true", "True"):
+        wp = preds.get("world_points", preds.get("points"))
+        im = preds.get("images")
+        if wp is not None and im is not None:
+            wp = wp.float().cpu().numpy().reshape(-1, 3)
+            img = im.float().cpu().numpy(); img = np.squeeze(img)          # [S,3,H,W] or [S,H,W,3]
+            if img.ndim == 4 and img.shape[1] == 3:
+                img = np.transpose(img, (0, 2, 3, 1))
+            col = (img.reshape(-1, 3) * 255.0).clip(0, 255).astype(np.uint8)
+            n = min(len(wp), len(col)); wp, col = wp[:n], col[:n]
+            MAX = 400_000
+            if n > MAX:
+                idx = np.random.default_rng(0).choice(n, MAX, replace=False)
+                wp, col = wp[idx], col[idx]
+            save["points"] = wp.astype(np.float32); save["colors"] = col
+            print(f"[panovggt] dumped {len(wp)} points for the .ply")
+
+    np.savez(os.path.join(a.out, "pred.npz"), **save)
     print(f"[panovggt] wrote poses {poses.shape} for {len(paths)} images")
 
 
