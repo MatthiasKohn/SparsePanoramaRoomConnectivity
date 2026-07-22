@@ -64,12 +64,27 @@ median-nonempty-cell`). A cell is *well-observed* if it holds ≥ tau points; **
 fraction of input-well-observed content cells that are under-sampled from the novel view**. This
 is a CPU stand-in for the alpha/hole map a real gaussian rasteriser produces.
 
-## Optional, ONE-TIME — gsplat (torch 2.5.0 + cu124) for surfel-accurate holes / Step-1
-Not needed for the Step-0 kill decision (see "why density, not gsplat" in the chat / research log).
-This is a one-time setup you run ONCE on the login node — not per experiment. Only do it when you
-want true surfel occlusion (a crisp alpha hole-map) or differentiable optimisation
-(`sparsepano/gs/gs_optim.py`, Step-1). Install into the fmodels venv from the login node (compute
-nodes are offline); use the prebuilt
+## gsplat surfel rendering (GPU) — the TRUE alpha hole-map
+The CPU point metric is a density proxy; gsplat rasterises real surfels and its **alpha channel is
+a true coverage/hole map**. Use it to check whether "coverage is solved" survives proper rendering.
+
+1. ONE-TIME install (login node): `bash scripts/setup_gsplat.sh`
+2. Run (GPU, no login-node steps): `sbatch scripts/run_gs_prototype_gpu.slurm`
+   - Defaults to ONE home / ONE view (`--rasterizer gsplat`), so you can eyeball the auto-convention
+     PSNR and `gs_novel_holes.png` before spending a sweep. Widen `HOMES`/`NOVEL_FRACS` after.
+   - Outputs per tag: `gs_novel.png`, `gs_novel_alpha.png`, `gs_novel_holes.png` (red = true holes),
+     `gs_input.png`. Prints: auto-convention PSNR (>18 dB = OK), input-view holes (control, ~0 if
+     surfels fill), and the NOVEL through-door disocclusion (true alpha holes).
+   - Renders a PERSPECTIVE view *through the doorway toward room B* (gsplat is pinhole), not equirect.
+
+**First-run checklist (untested locally — no GPU here):** (a) auto-convention PSNR should be high
+(>~22 dB); if it's low, the (basis×vflip) search or multi-room bleed is off — inspect `gs_input.png`.
+(b) The perspective camera looks at room B's centroid; if it faces a wall, widen `GS_FOV` or set a
+`--novel_frac` nearer the door. (c) gsplat JIT-compiles its kernel on first GPU import (minutes);
+`TORCH_EXTENSIONS_DIR` caches it so later runs are instant.
+
+### (Alternative install if the plain `pip install gsplat` route fails)
+Use the prebuilt
 wheel matching the stack to avoid a JIT compile on an offline node:
 ```bash
 module load profile/deeplrn cineca-ai/4.3.0

@@ -157,3 +157,21 @@ true occlusion hole-map. Next: swept novel-camera along camA->camB (frac 0.25/0.
 disocclusion CURVE, and hardened the convention check to use camera-B position + a camA-door-camB
 straddle test (centroid-based check gave false alarms on large/L-shaped neighbour rooms). Re-run
 the same `scripts/run_gs_prototype.slurm` to get both.
+
+### Step-0 sweep + the real finding (KEY)
+Novel-cam swept door→0.25→0.5→0.75 into room B, PaGeR depth. Disocclusion stays LOW and roughly
+flat/non-monotonic: 0053 .056/.052/.080/.105 · 0032 .091/.071/.094/.067 · 0023 .034/.021/.033/.023
+(0070 was a bad pair — now auto-fixed). **Looking at the renders changes the interpretation:** the
+novel views are COHERENT and COMPLETE (e.g. 0053 @0.75 is a clean room with the neighbour visible
+back through the door); the dominant artifact is point SPARSITY (dotty), not missing geometry.
+=> With one 360° pano per room at GT poses, each room is fully self-observed, so novel views between
+adjacent rooms are ~90-98% covered. **Coverage is NOT the Paper-2 bottleneck; the residual a
+completion prior would fill is small (grazing/furniture/doorjamb). The sparsity is a RENDERING issue
+(real gaussian surfels / gsplat fix it), not a content issue.** This redirects Paper 2 toward the
+POSE/alignment quality (which the overlap_probe sparse regime showed is hard: 23.9°/0.271) as the
+true determinant of reconstruction quality — dovetails with the connectivity+layout work.
+
+Infra: pair selection now auto-rejects straddle<90 (cameras same side of door) and picks the best
+valid door — fixes 0070. Added optional room-B pose-error injection (`--pose_noise_deg/_m`) to run
+the pose-sensitivity test (NB: needs a misalignment metric, e.g. masked PSNR novel(GT) vs
+novel(noisy) — the density disocclusion won't capture ghosting).

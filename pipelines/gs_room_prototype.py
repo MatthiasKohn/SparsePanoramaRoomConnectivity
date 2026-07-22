@@ -88,6 +88,38 @@ def _w2c_args(cam_c2w):
     return R.T, (-R.T @ C)
 
 
+def _lookat_c2w(eye, target, up=(0.0, 1.0, 0.0)):
+    """y-up world look-at -> camera-to-world (columns = right, up, forward)."""
+    eye = np.asarray(eye, float); target = np.asarray(target, float)
+    f = target - eye; f /= (np.linalg.norm(f) + 1e-9)
+    r = np.cross(f, up); r /= (np.linalg.norm(r) + 1e-9)
+    u = np.cross(r, f)
+    T = np.eye(4)
+    T[:3, 0], T[:3, 1], T[:3, 2], T[:3, 3] = r, u, f, eye
+    return T
+
+
+# --------------------------------------------------------- gsplat surfel rendering (GPU)
+def gsplat_render(g, cam_c2w, basis, fov, size, device="cuda"):
+    """Real surfel render (rgb + ALPHA) of world Gaussians from a perspective camera.
+    Reuses gs_optim's tested convention: effective c2w rotation = R_cam @ basis, viewmat =
+    inverse. The alpha channel is the true coverage/hole map a point splat cannot give."""
+    import torch
+    from gsplat import rasterization
+    from sparsepano.gs import gs_optim
+    raw = gs_optim._to_raw(g, device)
+    means, quats, scales, opac, colors = gs_optim._activated(raw)
+    Reff = (cam_c2w[:3, :3] @ basis).astype(np.float32)
+    T = np.eye(4, dtype=np.float32); T[:3, :3] = Reff; T[:3, 3] = cam_c2w[:3, 3]
+    vm = torch.tensor(np.linalg.inv(T), device=device).float()[None]
+    K = torch.tensor(gs_optim._K(fov, size), device=device).float()[None]
+    rgb, alpha, _ = rasterization(means, quats, scales, opac, colors, vm, K,
+                                  width=size, height=size, render_mode="RGB")
+    rgb = rgb[0].clamp(0, 1).detach().cpu().numpy()
+    alpha = alpha[0, ..., 0].detach().cpu().numpy()
+    return (rgb * 255).astype(np.uint8), alpha
+
+
 # ------------------------------------------------------------------ disocclusion metric
 # A raw "any point hit this cell?" test saturates: a point splat has no surface, so far
 # walls leak into would-be holes and every direction inside a room is filled. The honest
@@ -139,7 +171,8 @@ def mode_single(a):
     g = build_room_gaussians(rgb, depth, eye, stride=a.stride, max_depth=a.max_depth)
     # novel camera: step sideways (+x) by `baseline` metres and yaw toward the wall
     novel = _pose_translate(eye, dx=a.baseline, yaw_deg=a.yaw)
-    return g, H, W, eye, novel, [("room", g)]
+    extras = {"rgbs": [rgb], "poses": [eye], "look_target": g["xyz"].mean(0)}
+    return g, H, W, eye, novel, [("room", g)], extras
 
 
 def _connected_pair(scene, tol_m=0.25):
@@ -156,8 +189,15 @@ def _connected_pair(scene, tol_m=0.25):
             if pa.room_id == pb.room_id:
                 continue
             if np.linalg.norm(ma - mb) <= tol_m:
-                cams = pa.pose_c2w[[0, 2], 3], pb.pose_c2w[[0, 2], 3]
-                score = np.linalg.norm(cams[0] - ma) + np.linalg.norm(cams[1] - mb)
+                # use door A's own midpoint (ma) — the same one used downstream (convention
+                # check, novel cam) — so the straddle gate is consistent with what we return.
+                Ca, Cb, Dm = pa.pose_c2w[[0, 2], 3], pb.pose_c2w[[0, 2], 3], ma
+                va, vb = Ca - Dm, Cb - Dm
+                straddle = np.degrees(np.arccos(np.clip(
+                    va @ vb / (np.linalg.norm(va) * np.linalg.norm(vb) + 1e-9), -1, 1)))
+                if straddle < 90:                             # cameras same side -> bad/overlapping pair
+                    continue
+                score = np.linalg.norm(va) + np.linalg.norm(vb)
                 cands.append((score, pa, pb, da))
     if not cands:
         return None
@@ -181,8 +221,23 @@ def mode_zind(a):
     pa, pb, door = pair
     print(f"[zind] connected pair: {pa.id} (room {pa.room_id}) <-> {pb.id} (room {pb.room_id}) via door {door.uid}")
 
-    gs, named = [], []
-    for p in (pa, pb):
+    # optional pose-error injection on room B: perturb its GT pose by a yaw error and a
+    # horizontal translation error (the thesis' real bottleneck — estimated, not GT, poses).
+    # Room A stays at GT so the perturbation is purely the *relative* pose error.
+    pose_b = pb.pose_c2w.copy()
+    if a.pose_noise_deg or a.pose_noise_m:
+        rng = np.random.default_rng(a.noise_seed)
+        dyaw = np.deg2rad(a.pose_noise_deg) * rng.standard_normal()
+        c, s = np.cos(dyaw), np.sin(dyaw)
+        Rn = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]], float)
+        pose_b[:3, :3] = Rn @ pose_b[:3, :3]
+        ang = rng.uniform(0, 2 * np.pi)
+        pose_b[[0, 2], 3] += a.pose_noise_m * np.array([np.cos(ang), np.sin(ang)])
+        print(f"[zind] pose noise on room B: yaw {np.degrees(dyaw):+.1f} deg, "
+              f"trans {a.pose_noise_m:.2f} m")
+
+    gs, named, rgbs, poses = [], [], [], []
+    for p, pose in ((pa, pa.pose_c2w), (pb, pose_b)):
         dp = _depth_path_for(p, a.home, a.depth_sub)
         if not dp.exists():
             raise SystemExit(f"missing depth {dp} -- generate depth for this home first")
@@ -190,8 +245,8 @@ def mode_zind(a):
         depth = _load_depth_2d(dp)
         if rgb.shape[:2] != depth.shape:
             rgb = cv2.resize(rgb, (depth.shape[1], depth.shape[0]), interpolation=cv2.INTER_AREA)
-        g = build_room_gaussians(rgb, depth, p.pose_c2w, stride=a.stride, max_depth=a.max_depth)
-        gs.append(g); named.append((p.room_id, g))
+        g = build_room_gaussians(rgb, depth, pose, stride=a.stride, max_depth=a.max_depth)
+        gs.append(g); named.append((p.room_id, g)); rgbs.append(rgb); poses.append(pose)
     H, W = depth.shape
     merged = merge(gs)
 
@@ -227,19 +282,23 @@ def mode_zind(a):
     else:
         C = Dm
     cam[0, 3], cam[2, 3] = C[0], C[1]
-    return merged, H, W, pa.pose_c2w, cam, named, door
+    extras = {"rgbs": rgbs, "poses": poses, "look_target": gs[1]["xyz"].mean(0)}  # look at room B
+    return merged, H, W, pa.pose_c2w, cam, named, door, extras
 
 
 def main(a):
     door = None
     if a.pano:
-        g, H, W, input_cam, novel_cam, named = mode_single(a)
+        g, H, W, input_cam, novel_cam, named, extras = mode_single(a)
         merged = g
     else:
-        merged, H, W, input_cam, novel_cam, named, door = mode_zind(a)
+        merged, H, W, input_cam, novel_cam, named, door, extras = mode_zind(a)
 
     out = config.RESULTS_ROOT / "gs_prototype" / a.tag
     out.mkdir(parents=True, exist_ok=True)
+
+    if a.rasterizer == "gsplat":
+        return _main_gsplat(a, merged, input_cam, novel_cam, extras, door, out)
 
     # downscale render resolution for speed (metric geometry unchanged)
     rH, rW = min(H, a.render_h), min(H, a.render_h) * 2
@@ -273,6 +332,51 @@ def main(a):
     print(f"  wrote {out}/input.png novel.png disocc.png merged.ply")
 
 
+def _interior_holes(alpha, thr):
+    """True disocclusion holes = low-alpha pixels ENCLOSED by covered geometry (not the empty
+    background outside the scene silhouette). Flood-fill background from the border."""
+    covered = (alpha >= thr).astype(np.uint8)
+    h, w = covered.shape
+    ff = (1 - covered).astype(np.uint8)                       # empty pixels
+    mask = np.zeros((h + 2, w + 2), np.uint8)
+    cv2.floodFill(ff, mask, (0, 0), 0)                        # kill empty region connected to border
+    interior = covered | (ff > 0)                             # covered + enclosed empties
+    holes = (alpha < thr) & (interior > 0)
+    return interior.astype(bool), holes
+
+
+def _main_gsplat(a, merged, input_cam, novel_cam, extras, door, out):
+    """Real surfel render (gsplat, GPU). The alpha channel gives a TRUE hole map, which the
+    CPU point splat cannot — this checks whether 'coverage is solved' survives proper rendering."""
+    from sparsepano.gs import gs_optim
+    thr, fov, size = a.alpha_thr, a.gs_fov, a.gs_size
+    basis, vflip, psnr = gs_optim.auto_convention(merged, extras["rgbs"], extras["poses"],
+                                                  fov=fov, size=min(size, 256))
+    tgt = extras["look_target"]
+    in_cam = _lookat_c2w(extras["poses"][0][:3, 3], tgt)      # from camera A, facing room B
+    nv_cam = _lookat_c2w(novel_cam[:3, 3], tgt)               # from novel position, facing room B
+    rgb_in, al_in = gsplat_render(merged, in_cam, basis, fov, size)
+    rgb_nv, al_nv = gsplat_render(merged, nv_cam, basis, fov, size)
+
+    int_in, hole_in = _interior_holes(al_in, thr)
+    int_nv, hole_nv = _interior_holes(al_nv, thr)
+    disocc_nv = hole_nv.sum() / max(int_nv.sum(), 1)
+    disocc_in = hole_in.sum() / max(int_in.sum(), 1)          # control: ~0 if surfels fill
+
+    cv2.imwrite(str(out / "gs_input.png"), cv2.cvtColor(rgb_in, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(str(out / "gs_novel.png"), cv2.cvtColor(rgb_nv, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(str(out / "gs_novel_alpha.png"), (np.clip(al_nv, 0, 1) * 255).astype(np.uint8))
+    ov = cv2.cvtColor(rgb_nv, cv2.COLOR_RGB2BGR); ov[hole_nv] = (0, 0, 255)
+    cv2.imwrite(str(out / "gs_novel_holes.png"), ov)
+
+    print(f"\n==== Step-0 gsplat surfel — tag={a.tag} ====")
+    print(f"  gaussians          : {len(merged['xyz']):,}   perspective {size}px fov{fov}")
+    print(f"  convention (auto)  : basis-matched PSNR {psnr:.1f} dB  {'OK' if psnr > 18 else '!! LOW (convention/bleed)'}")
+    print(f"  input-view holes (control) : {disocc_in:.3f}  (should be ~0 if surfels fill)")
+    print(f"  NOVEL through-door DISOCCLUSION (true alpha holes): {disocc_nv:.3f}")
+    print(f"  wrote {out}/gs_novel.png gs_novel_alpha.png gs_novel_holes.png gs_input.png")
+
+
 def _save_disocc_overlay(path, well_in, poor_nv, grid):
     gh, gw = well_in.shape
     ov = np.zeros((gh, gw, 3), np.uint8)
@@ -296,6 +400,17 @@ if __name__ == "__main__":
     ap.add_argument("--novel_frac", type=float, default=None,
                     help="place novel cam at this fraction along camA->camB (0=A,1=B); "
                          "default = at the door midpoint. Sweep to get the disocclusion curve.")
+    ap.add_argument("--pose_noise_deg", type=float, default=0.0,
+                    help="inject yaw error (std, deg) into room B's pose — the pose-sensitivity test")
+    ap.add_argument("--pose_noise_m", type=float, default=0.0,
+                    help="inject horizontal translation error (m) into room B's pose")
+    ap.add_argument("--noise_seed", type=int, default=0)
+    # rendering backend
+    ap.add_argument("--rasterizer", choices=["points", "gsplat"], default="points",
+                    help="'points' = CPU density proxy (default); 'gsplat' = GPU surfels + true alpha holes")
+    ap.add_argument("--alpha_thr", type=float, default=0.5, help="gsplat: alpha below this = hole")
+    ap.add_argument("--gs_fov", type=float, default=90.0, help="gsplat perspective FOV (deg)")
+    ap.add_argument("--gs_size", type=int, default=512, help="gsplat render size (px, square)")
     # shared
     ap.add_argument("--stride", type=int, default=4, help="pano pixel stride for GS init")
     ap.add_argument("--max_depth", type=float, default=12.0)
