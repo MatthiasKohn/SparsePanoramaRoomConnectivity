@@ -24,6 +24,29 @@ from sparsepano.doors import door_dataset
 from pipelines.distance_baseline import wrap180, sample_depth_sector
 
 
+_warned = set()
+
+
+def _load_depth_2d(path):
+    """Load a depth .npy and coerce to (H,W). PaGeR saves (1,H,W)/(H,W,1) etc; squeeze/reduce it.
+    Returns None (with a one-time warning) if it can't be reduced to a single-channel map."""
+    d = np.load(path).astype(np.float32)
+    d = np.squeeze(d)
+    if d.ndim == 3:
+        if d.shape[0] == 1:          # (1,H,W)
+            d = d[0]
+        elif d.shape[-1] == 1:       # (H,W,1)
+            d = d[..., 0]
+    if d.ndim != 2:
+        key = str(path.parent)
+        if key not in _warned:
+            _warned.add(key)
+            print(f"  [warn] {path.parent.parent.name}/{path.parent.name}: depth shape {np.load(path).shape} "
+                  f"is not a single-channel map (squeezed -> {d.shape}); this source will be skipped for it.")
+        return None
+    return d
+
+
 def _floors(home):
     try:
         return list(json.load(open(home / "zind_data.json")).get("merger", {}).keys())
@@ -42,7 +65,7 @@ def _home_rows(home, floor, sources, w0):
         depths = {}
         for s in sources:
             dp = home / s / f"{pano}.npy"
-            depths[s] = np.load(dp).astype(np.float32) if dp.exists() else None
+            depths[s] = _load_depth_2d(dp) if dp.exists() else None
         cam = np.array(info["pos"], float)
         for (d0, d1) in info["doors_global"]:
             mid = (d0 + d1) / 2.0

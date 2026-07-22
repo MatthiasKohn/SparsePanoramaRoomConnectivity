@@ -21,7 +21,7 @@ def main():
             print(f"skip {mod}: no {src}"); continue
         for f in sorted(src.glob("*.npz")):
             home, stem = f.stem.split("__", 1)
-            arr = np.load(f)["arr_0"]                 # np.savez(path, raw_image) -> key arr_0
+            arr = np.squeeze(np.load(f)["arr_0"])      # np.savez(path, raw_image) -> key arr_0; squeeze to (H,W)
             out = zr / home / "pager_depth" / sub
             out.mkdir(parents=True, exist_ok=True)
             np.save(out / f"{stem}.npy", arr.astype(np.float32))
