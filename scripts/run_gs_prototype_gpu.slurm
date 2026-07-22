@@ -38,13 +38,19 @@ source scripts/env_leonardo.sh              # exports PROJECT_ROOT, ZIND_ROOT, R
 export TORCH_EXTENSIONS_DIR="${TORCH_EXTENSIONS_DIR:-/leonardo_work/EUHPC_D35_121/cache/torch_ext}"
 mkdir -p logs "$TORCH_EXTENSIONS_DIR"
 
-# CRITICAL: cineca-ai puts its OWN torch on PYTHONPATH, which shadows the fmodels venv (that
-# was the libcudnn.so.8 crash — it loaded cineca's torch, not ours). So we call the fmodels
-# python binary DIRECTLY with PYTHONPATH = ONLY the project root (no cineca entries), and strip
-# LD_LIBRARY_PATH to avoid the nvJitLink shadow. sparsepano/pipelines import from PROJECT_ROOT;
-# torch/gsplat/numpy/cv2 come from the venv's own site-packages.
+# Two shadows to thread between:
+#  1) cineca-ai puts its OWN torch on PYTHONPATH -> shadows the fmodels venv (was the
+#     libcudnn.so.8 crash). Fix: call the fmodels python directly with PYTHONPATH = ONLY the
+#     project root. torch/gsplat/numpy/cv2 then come from the venv's own site-packages.
+#  2) LD_LIBRARY_PATH: cineca's CUDA libs shadow torch's bundled cu124 (nvJitLink), but gsplat's
+#     JIT kernel (built with gcc-12) needs gcc-12's libstdc++ (GLIBCXX_3.4.29) at load time.
+#     Fix: set LD_LIBRARY_PATH to ONLY the gcc-12 lib dir — keeps the new libstdc++, drops the
+#     CUDA shadow (torch loads its bundled CUDA libs itself, independent of LD_LIBRARY_PATH).
 PY="$FMODELS/bin/python"
-RUNPY() { env -u LD_LIBRARY_PATH PYTHONPATH="$PROJECT_ROOT" "$PY" "$@"; }
+GCCLIB="$(dirname "$(g++ -print-file-name=libstdc++.so.6 2>/dev/null)")"
+if [[ "$GCCLIB" != /* ]]; then echo "WARN: could not locate gcc libstdc++; falling back to unset LD"; GCCLIB=""; fi
+echo "gcc libstdc++ dir: ${GCCLIB:-<none>}"
+RUNPY() { env LD_LIBRARY_PATH="$GCCLIB" TORCH_CUDA_ARCH_LIST="8.0" PYTHONPATH="$PROJECT_ROOT" "$PY" "$@"; }
 echo "torch/gsplat from:"; RUNPY -c "import torch, gsplat; print(' torch', torch.__version__, '| gsplat', gsplat.__version__, '| cuda', torch.cuda.is_available())"
 
 echo "=== gs_prototype GPU/gsplat run $(date) ==="
