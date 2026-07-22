@@ -84,3 +84,27 @@ and the conclusion.*
   (ZInD has no GT depth → the metric decision needs the depth→door-distance vs GT test).
 - **Hypothesis to test:** PaGeR's real doorway geometry may revive the *free-space* which-side flip cue
   that was ~chance with DAP (distinct from the settled *appearance*-flip negative).
+
+
+## 2026-07-2x — PaGeR vs DAP A/B (camera→door distance): DAP wins — do NOT adopt PaGeR for distance
+`pipelines.depth_ab`, 1424 paired doors over 20 held-out homes, camera→door distance error vs GT door
+geometry (median | MAE):
+  PaGeR depth        0.93 | 1.38 m     (DAP better on 16/20 homes)
+  DAP depth          0.69 | 1.05 m
+  fixed-width (0.9m) 0.61 | 2.48 m     (best median, worst MAE — blows up on wide/double doors)
+  GT distance median 1.67 m.
+=> **Counterintuitive but clear: PaGeR's crisper depth (median 1.56 m, max 5.86 m per pano) does NOT
+   translate into better metric camera→door distance — DAP is better.** The qualitative "PaGeR >> DAP"
+   (resolves doorways) was misleading for THIS metric. Likely causes: (a) PaGeR compresses/under-shoots
+   far depth (per-pano max ~6 m — hallway doors several m away get squashed); (b) its sharp door edges
+   make the bearing-sector sample lock onto the near frame/leaf rather than the door plane, so sharpness
+   can hurt this particular estimator. Methodological win: the number overturned the eyeball.
+Decisions:
+- **Do NOT adopt PaGeR as the distance/pose depth source.** Keep DAP there for now.
+- **Fixed-width geometry beats BOTH depths on the median** → for camera→door distance, the door's own
+  geometry (→ a LEARNED per-door width/distance head, exp32/M2) is the right lever, not any monocular
+  depth. This reinforces the PaperV2 "drop monocular depth, get distance from the door" thesis. Elevate
+  the learned per-door head over any depth-backbone swap for the distance signal.
+- **Keep PaGeR for its DIFFERENTIAL strengths** (this A/B doesn't test them): surface NORMALS + crisp
+  per-room geometry for (i) opening/door detection → connectivity recall, (ii) the free-space which-side
+  cue retest, (iii) Paper-2 per-room 3D. PaGeR's value is geometry/normals, not metric door distance.
