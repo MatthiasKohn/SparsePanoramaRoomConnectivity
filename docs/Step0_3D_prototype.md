@@ -13,22 +13,17 @@ The disocclusion measurement is a **CPU numpy** point-reprojection + density met
 anywhere the fmodels venv (numpy + opencv) is available. gsplat/CUDA is only needed later
 (surfel-accurate hole maps, or Step-1 differentiable optimisation) — see the bottom.
 
-## Run the real Step-0 on Leonardo (ZInD, where panos+depth+poses coexist)
+## Run the real Step-0 on Leonardo — ONE script, no login-node steps
+Edit the CONFIG block at the top of `scripts/run_gs_prototype.slurm` (homes, floor, depth
+source, stride) and submit:
 ```bash
-# login or a CPU/GPU compute node; the fmodels venv only needs numpy+opencv
-module load profile/deeplrn cineca-ai/4.3.0
-source $WORK/envs/fmodels/bin/activate
-export PROJECT_ROOT=$HOME/projects/SparsePanoramaRoomConnectivity   # adjust
-export ZIND_ROOT=$WORK/data/zind/full_dataset                        # adjust
-cd $PROJECT_ROOT
-
-PYTHONPATH=$PROJECT_ROOT python -m pipelines.gs_room_prototype \
-    --home $ZIND_ROOT/0053 --floor floor_01 \
-    --depth_sub pager_depth/depth_meters \
-    --stride 4 --render_h 512 --tag zind_0053
+sbatch scripts/run_gs_prototype.slurm
 ```
-Swap `--depth_sub dap_depth/depth_meters` to compare DAP vs PaGeR depth on the same view.
-Homes with depth already generated: `scripts/depth_homes.txt` (0053, 0070, 0023, 0032, …).
+The pipeline is pure numpy/cv2 (no torch/gsplat/CUDA), so the whole thing runs inside the job —
+nothing on the login node. It loops over the homes, writes each to
+`$RESULTS_ROOT/gs_prototype/<tag>/`, and prints the convention check + disocclusion per home.
+Set `DEPTH_SUB=dap_depth/depth_meters` to A/B DAP vs PaGeR depth. Homes with depth already
+generated: `scripts/depth_homes.txt` (0053, 0070, 0023, 0032, …).
 
 **Outputs** → `results/gs_prototype/<tag>/`: `input.png` (sanity: GS render from camera A —
 should reproduce the pano), `novel.png` (view from the doorway into room B), `disocc.png`
@@ -69,9 +64,12 @@ median-nonempty-cell`). A cell is *well-observed* if it holds ≥ tau points; **
 fraction of input-well-observed content cells that are under-sampled from the novel view**. This
 is a CPU stand-in for the alpha/hole map a real gaussian rasteriser produces.
 
-## Optional upgrade — gsplat (torch 2.5.0 + cu124) for surfel-accurate holes / Step-1
-Only if you want true surfel occlusion or differentiable optimisation (`sparsepano/gs/gs_optim.py`).
-Install into the fmodels venv from the login node (compute nodes are offline); use the prebuilt
+## Optional, ONE-TIME — gsplat (torch 2.5.0 + cu124) for surfel-accurate holes / Step-1
+Not needed for the Step-0 kill decision (see "why density, not gsplat" in the chat / research log).
+This is a one-time setup you run ONCE on the login node — not per experiment. Only do it when you
+want true surfel occlusion (a crisp alpha hole-map) or differentiable optimisation
+(`sparsepano/gs/gs_optim.py`, Step-1). Install into the fmodels venv from the login node (compute
+nodes are offline); use the prebuilt
 wheel matching the stack to avoid a JIT compile on an offline node:
 ```bash
 module load profile/deeplrn cineca-ai/4.3.0
