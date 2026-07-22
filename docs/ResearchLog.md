@@ -61,3 +61,26 @@ and the conclusion.*
 ## Assets
 - Weights: `best.pt`, `best_hardneg.pt`, `door_encoder.pt`. Frozen test split: `runs/hardneg/val_homes.txt`
   (197 homes). Clean model benchmark: `overlap_probe/`. Distance dataset substrate: `data_floors/`.
+
+
+## 2026-07-2x — Infra hardening + PaGeR geometry backbone
+- **Repo restructured** (dataset-agnostic): `sparsepano/` (datasets/geometry/doors/pose/gs/metrics/viz) +
+  `pipelines/` (CLIs) + `benchmarks/overlap_probe/` + `docs/` + `legacy/` + `weights/`. Old `src/`,
+  `experiments/`, root `config.py` removed (migrated; git history kept). Connectivity reproduces via
+  `python -m pipelines.run --stage connectivity` — AP ≈0.91 GT / ≈0.84 detected (local subset 0.956).
+  Cluster scripts on `python -m pipelines.*`; `env_*.sh` export PYTHONPATH; all SLURM logs → `logs/`.
+- **Single shared `fmodels` venv** (torch 2.5.0+cu124) for PanoVGGT/Argus/VGGT/PaGeR (was one venv each);
+  harness picks it via the per-model `*_PY` vars. Rebuild recipe frozen in `$WORK/envs/fmodels.lock`.
+- **overlap_probe viz added:** 2D top-down GT-vs-pred camera overlay (`--viz`) + optional 3D point-cloud
+  dump for named scenes (`--dump_ply`, GT=red/pred=green cameras). Used to *see* PanoVGGT's sparse
+  collapse (0053 clean vs 0149 warped). Clean PanoVGGT result reproduced (dense 5.7° / sparse 23.9°).
+- **PaGeR (ETH, monocular panoramic geometry) integrated** as a DAP-drop-in: ZInD dataloader +
+  `scripts/trackF_pager_leonardo.slurm` + `scripts/pager/pager_to_pipeline.py` → per-pano metric depth +
+  normals under `<home>/pager_depth/{depth_meters,normals}/`. Run forced `--scene_mode indoor` on the 20
+  held-out homes. **Qualitative finding (consistent across ALL inspected samples): PaGeR >> DAP** — PaGeR
+  resolves each doorway/opening as a distinct depth recess and gives crisp planar surfaces; DAP is a
+  smooth low-frequency blob that smears openings into a wall. This is exactly the through-door geometry
+  our door-anchored pose needs. ADOPTION still pending the quantitative `distance_baseline` scale check
+  (ZInD has no GT depth → the metric decision needs the depth→door-distance vs GT test).
+- **Hypothesis to test:** PaGeR's real doorway geometry may revive the *free-space* which-side flip cue
+  that was ~chance with DAP (distinct from the settled *appearance*-flip negative).
