@@ -195,24 +195,38 @@ def mode_zind(a):
     H, W = depth.shape
     merged = merge(gs)
 
-    # convention self-check (mode B was untestable locally): in a correct assembly, room B
-    # lies BEYOND the shared door as seen from camera A. Compare the azimuth from A to room
-    # B's centroid vs the azimuth from A to the door midpoint. A large disagreement means
-    # pose_c2w and door endpoints_xy are NOT in the same frame -> fix before trusting numbers.
+    # convention self-check (mode B was untestable locally). Uses the two EXACT camera
+    # positions (not room B's centroid, which drifts for large/L-shaped rooms and gave false
+    # alarms). In a correct assembly the shared door sits BETWEEN the two cameras, so:
+    #   (a) from A, the door bearing ~ the bearing to camera B  (door is toward B), and
+    #   (b) the angle camA-door-camB is large (cameras straddle the door).
+    def _az(v):
+        return np.degrees(np.arctan2(v[0], v[1]))
+    def _adiff(a, b):
+        return abs((a - b + 180) % 360 - 180)
     Ca = pa.pose_c2w[[0, 2], 3]
-    b_centroid = gs[1]["xyz"][:, [0, 2]].mean(0) - Ca
-    b_door = np.array(door.endpoints_xy).mean(0) - Ca
-    az_b = np.degrees(np.arctan2(b_centroid[0], b_centroid[1]))
-    az_d = np.degrees(np.arctan2(b_door[0], b_door[1]))
-    disagree = abs((az_b - az_d + 180) % 360 - 180)
-    print(f"[zind] convention check: az(A->roomB)={az_b:6.1f}  az(A->door)={az_d:6.1f}  "
-          f"disagree={disagree:5.1f} deg  {'OK' if disagree < 45 else '!! FRAME MISMATCH'}")
+    Cb = pb.pose_c2w[[0, 2], 3]
+    Dm = np.array(door.endpoints_xy).mean(0)
+    az_AB = _az(Cb - Ca); az_Ad = _az(Dm - Ca)
+    toward_B = _adiff(az_AB, az_Ad)                            # door in direction of B from A?
+    va, vb = Ca - Dm, Cb - Dm
+    straddle = np.degrees(np.arccos(np.clip(
+        va @ vb / (np.linalg.norm(va) * np.linalg.norm(vb) + 1e-9), -1, 1)))
+    ok = (toward_B < 60) and (straddle > 90)
+    print(f"[zind] convention check: door-toward-B={toward_B:5.1f}deg  "
+          f"straddle(camA-door-camB)={straddle:5.1f}deg  "
+          f"{'OK' if ok else '!! SUSPECT (flip or bad pair — inspect merged.ply/input.png)'}")
 
-    # novel camera: stand at the shared doorway (x,z = door mid; y = camera height of A),
-    # oriented like camera A, looking toward room B.
-    mid_xz = np.array(door.endpoints_xy).mean(0)               # (x, z) in world metres
+    # novel camera. Default: stand AT the shared doorway (x,z = door mid). With --novel_frac f
+    # (0=camera A, 1=camera B) place it at a fraction along the A->B baseline instead, so you
+    # can SWEEP how disocclusion grows as the viewpoint moves off the capture points and into
+    # the neighbour room (the door is the *best* vantage, hence a lower bound).
     cam = pa.pose_c2w.copy()
-    cam[0, 3], cam[2, 3] = mid_xz[0], mid_xz[1]
+    if getattr(a, "novel_frac", None) is not None:
+        C = Ca + float(a.novel_frac) * (Cb - Ca)
+    else:
+        C = Dm
+    cam[0, 3], cam[2, 3] = C[0], C[1]
     return merged, H, W, pa.pose_c2w, cam, named, door
 
 
@@ -279,6 +293,9 @@ if __name__ == "__main__":
     ap.add_argument("--home", help="ZInD mode: home dir (…/full_dataset/0072)")
     ap.add_argument("--floor", default="floor_01")
     ap.add_argument("--depth_sub", default="dap_depth/depth_meters")
+    ap.add_argument("--novel_frac", type=float, default=None,
+                    help="place novel cam at this fraction along camA->camB (0=A,1=B); "
+                         "default = at the door midpoint. Sweep to get the disocclusion curve.")
     # shared
     ap.add_argument("--stride", type=int, default=4, help="pano pixel stride for GS init")
     ap.add_argument("--max_depth", type=float, default=12.0)

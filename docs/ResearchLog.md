@@ -148,3 +148,12 @@ Design decisions / findings:
 - **Convention risk flagged.** ZInD `pose_c2w` vs door `endpoints_xy` frame agreement was untestable
   locally (no ZInD panos here). Added a runtime self-check (`az(A->roomB)` vs `az(A->door)`, must
   agree <45°). Must read `convention check: OK` before trusting the cluster number.
+
+### Step-0 first ZInD run (door-vantage, PaGeR depth)
+Disocclusion at the doorway vantage (lower bound): 0053=0.056, 0032=0.091, 0023=0.034 (all
+convention-OK); 0070=0.104 but flagged **FRAME MISMATCH (154°)** -> not trustworthy. Caveats: the
+door is the BEST vantage into room B (underestimates), and the metric is a density proxy, not a
+true occlusion hole-map. Next: swept novel-camera along camA->camB (frac 0.25/0.5/0.75) to get the
+disocclusion CURVE, and hardened the convention check to use camera-B position + a camA-door-camB
+straddle test (centroid-based check gave false alarms on large/L-shaped neighbour rooms). Re-run
+the same `scripts/run_gs_prototype.slurm` to get both.
