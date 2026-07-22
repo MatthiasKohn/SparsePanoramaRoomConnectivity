@@ -108,3 +108,43 @@ Decisions:
 - **Keep PaGeR for its DIFFERENTIAL strengths** (this A/B doesn't test them): surface NORMALS + crisp
   per-room geometry for (i) opening/door detection → connectivity recall, (ii) the free-space which-side
   cue retest, (iii) Paper-2 per-room 3D. PaGeR's value is geometry/normals, not metric door distance.
+
+
+## 2026-07-2x — Detector-recall diagnosis: the gap is ~half geometrically addressable
+`pipelines.detect_diagnose`, 1560 GT doors over the 20 held-out cyclic homes, tol 15°. Per-pano-per-door
+recall 0.48 (harder cyclic subset + per-pano; vs 0.66 on the 197-home set). Of the 816 MISSED doors:
+  near-miss (<30°)   21%  -> cubemap-face detection (localization)
+  open (depth gap)   44%  -> PaGeR GEOMETRIC opening proposal can catch (leaf-less passages SegFormer skips)
+  flush (closed)     35%  -> appearance ceiling; neither lever fixes
+=> The recall gap is NOT mostly irreducible: ~65% of misses are potentially recoverable, dominated by
+   OPEN passages that a PaGeR depth-gap proposer could add. Real bounded Paper-1 win exists.
+CAVEATS: 44% is an UPPER BOUND on recoverable recall — a depth-gap proposer also fires on windows/mirrors,
+so the PRECISION cost is untested and could offset the gain; and this is the harder cyclic subset.
+DECISION (per the "start 3D soon" steer): BANK this as a scoped, quantified Paper-1 improvement (geometric
+opening proposals for the ~44% open misses + cubemap for the 21% near-miss), but do NOT build it now.
+PIVOT to the 3D-reconstruction prototype (Paper 2), which is the thesis goal. Come back to the opening
+proposer as a bounded (~1 day) headline-lift when convenient.
+
+## Step-0 3D prototype built (Paper 2 kick-off)
+`pipelines/gs_room_prototype.py`: GT-posed per-room 3D-Gaussian init from pano+metric-depth
+(reuses `sparsepano/gs/gsplat_init.py`), renders the input view (sanity) and a novel view **from
+the shared doorway into the neighbour room**, and quantifies disocclusion. Two modes: single-pano
+(local smoke test) and ZInD two-room (real Step-0). Deliberately uses GT poses — measures only the
+few-view coverage limit, not pose/connectivity.
+
+Design decisions / findings:
+- **No gsplat, no GPU for Step-0.** The disocclusion measure is a CPU numpy point-reprojection.
+  gsplat/CUDA is deferred to surfel-accurate hole maps / Step-1 optimisation (recipe in
+  `docs/Step0_3D_prototype.md`).
+- **Metric = point DENSITY, not any-hit coverage.** A point splat has no surface, so far walls leak
+  into would-be holes and a naive "any point present?" test saturates at ~1.0 (confirmed: 0.001
+  disocclusion regardless of viewpoint). Switched to coarse-cell point counts thresholded at
+  `tau_frac × median-cell`; disocclusion = input-well-observed cells that are under-sampled from the
+  novel view. Now responds to viewpoint: 0.001 @ 0.3 m step → 0.858 @ 2.5 m in a shallow room.
+- **Connected-pair selection.** ZInD annotates a shared door on BOTH room boundaries but the two
+  world midpoints differ ~5-10 cm (>the 0.05 m uid tolerance) — so exact-uid matching found ZERO
+  cross-room pairs on every floor. Fixed: match by 0.25 m midpoint proximity (validated on 0072/
+  0053/0070/0023/0032 metadata).
+- **Convention risk flagged.** ZInD `pose_c2w` vs door `endpoints_xy` frame agreement was untestable
+  locally (no ZInD panos here). Added a runtime self-check (`az(A->roomB)` vs `az(A->door)`, must
+  agree <45°). Must read `convention check: OK` before trusting the cluster number.
