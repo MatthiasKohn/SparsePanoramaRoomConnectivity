@@ -59,8 +59,22 @@ def _radial_wall_distance(poly, phis):
     return rho                                                     # (P,)
 
 
-def render_layout_depth(fl, pano, H=1024, W=2048, max_depth=30.0):
-    """Dense equirect depth (metres, range along each ray) from the room layout."""
+def _az_column_mask(aza_deg, azb_deg, W, pad_deg):
+    """Boolean (W,) of columns whose azimuth lies on the SHORT arc between the two bearings
+    (padded), handling the +/-180 seam."""
+    d = ((azb_deg - aza_deg + 180) % 360) - 180                   # signed shortest span
+    lo = min(aza_deg, aza_deg + d) - pad_deg
+    span = abs(d) + 2 * pad_deg
+    au = (np.arange(W) / W - 0.5) * 360.0                         # azimuth per column (deg)
+    return ((au - lo) % 360) <= span
+
+
+def render_layout_depth(fl, pano, H=1024, W=2048, max_depth=15.0, mask_doors=True, pad_deg=4.0,
+                        max_span_deg=110.0):
+    """Dense equirect depth (metres, range along each ray) from the room layout.
+    With mask_doors, the wall band at each door/opening azimuth is left EMPTY (depth 0) so we
+    don't paste the neighbour room onto a solid wall — the passage stays a hole (to be filled by
+    the neighbour's own points, or later by generation)."""
     info = fl.panos[pano]
     cam_h_m = info["cam_h_m"]
     h_floor = info["camera_height"] * cam_h_m                      # camera above floor (m)
@@ -68,6 +82,11 @@ def render_layout_depth(fl, pano, H=1024, W=2048, max_depth=30.0):
     poly = _room_polygon_local(fl, pano)
     if poly is None:
         return np.full((H, W), np.nan, np.float32)
+
+    # cap by the room's own size: no valid surface is much farther than the room's diameter,
+    # so anything beyond is a stray (camera annotated slightly outside its polygon).
+    room_r = float(np.linalg.norm(poly, axis=1).max())
+    max_depth = min(max_depth, 1.4 * room_r + h_ceil + h_floor)
 
     us = np.arange(W)
     phis = (us / W - 0.5) * 2 * np.pi                              # azimuth per column
@@ -82,6 +101,25 @@ def render_layout_depth(fl, pano, H=1024, W=2048, max_depth=30.0):
         t_floor = np.where(sin_t < -1e-6, h_floor / np.clip(-sin_t, 1e-6, None), np.inf)
         t_ceil = np.where(sin_t > 1e-6, h_ceil / np.clip(sin_t, 1e-6, None), np.inf)
     t_vert = np.minimum(t_floor, t_ceil)[:, None] * np.ones((1, W))
-    depth = np.minimum(t_wall, t_vert)
-    depth = np.clip(depth, 0.05, max_depth).astype(np.float32)
+    wall_hit = t_wall < t_vert                                     # (H,W) this ray hits a wall
+    raw = np.minimum(t_wall, t_vert)
+    # rays that miss the wall polygon (camera outside its annotated room for that azimuth) or
+    # graze the horizon go to infinity -> DROP them (depth 0 = skipped) instead of flinging a
+    # point out at max_depth, which is what littered the .ply.
+    invalid = ~np.isfinite(raw) | (raw >= max_depth)
+    depth = np.clip(raw, 0.05, max_depth).astype(np.float32)
+    depth[invalid] = 0.0
+
+    if mask_doors:
+        S = fl.meters_per_coord; pos = np.asarray(info["pos"], float)
+        segs = list(info.get("doors_global", [])) + list(info.get("openings_global", []))
+        carve = np.zeros(W, bool)
+        for p0, p1 in segs:
+            aza = door_dataset.door_azimuth(fl, pano, p0)
+            azb = door_dataset.door_azimuth(fl, pano, p1)
+            span = abs(((azb - aza + 180) % 360) - 180) + 2 * pad_deg
+            if span > max_span_deg:                              # degenerate/near-camera -> skip
+                continue
+            carve |= _az_column_mask(aza, azb, W, pad_deg)
+        depth[wall_hit & carve[None, :]] = 0.0                    # empty the door/opening wall band
     return depth

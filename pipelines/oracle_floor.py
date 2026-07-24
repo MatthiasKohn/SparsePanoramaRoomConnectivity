@@ -63,8 +63,18 @@ def _cull_depth_edges(depth, rel=0.15):
     return d
 
 
-def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult, cull=True):
-    depth = layout_depth.render_layout_depth(fl, stem, H, W, max_depth=max_depth)
+def _thin_poles(g, rng, min_keep=0.12):
+    """Equirect over-samples the poles (ceiling/floor) -> concentric point 'rings'. Keep each
+    point with prob ~ cos(elevation) so the cloud is roughly uniform on surfaces (walls kept)."""
+    xyz = g["xyz"]; r = np.linalg.norm(xyz, axis=1) + 1e-9
+    cos_el = np.sqrt(xyz[:, 0] ** 2 + xyz[:, 2] ** 2) / r        # 1 at horizon, 0 at poles
+    keep = rng.random(len(xyz)) < np.clip(cos_el, min_keep, 1.0)
+    return {k: v[keep] for k, v in g.items()}
+
+
+def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult, cull=True,
+                   mask_doors=True, thin_poles=True):
+    depth = layout_depth.render_layout_depth(fl, stem, H, W, max_depth=max_depth, mask_doors=mask_doors)
     if cull:
         depth = _cull_depth_edges(depth)
     rgb = _pano_rgb(home, stem, (H, W))
@@ -72,6 +82,8 @@ def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult, 
         return None, None
     pose = zind._pose_c2w(fl.panos[stem], meters)
     g = build_room_gaussians(rgb, depth, pose, stride=stride, max_depth=max_depth, scale_mult=scale_mult)
+    if thin_poles:
+        g = _thin_poles(g, np.random.default_rng(0))
     return g, pose
 
 
@@ -177,61 +189,74 @@ def main(a):
     yaws = list(np.linspace(0, 360, a.yaws, endpoint=False))
     lp = _LPIPS(device)
 
-    # ONE real pano per room (target setting) = the floor input; the rest are held-out.
+    # DEFAULT: reconstruct the full floor from ALL panos.  --eval: hold one pano per room out.
     by_room = {}
     for s in panos:
         by_room.setdefault(fl.panos[s]["room"], []).append(s)
-    inputs = [ss[0] for ss in by_room.values()]                # one primary pano per room
-    extras = [s for ss in by_room.values() for s in ss[1:]]    # held-out novel views
-    print(f"[oracle] {len(inputs)} rooms -> floor from 1 pano/room; {len(extras)} held-out views")
+    if a.eval:
+        inputs = [ss[0] for ss in by_room.values()]            # one primary pano per room
+        extras = [s for ss in by_room.values() for s in ss[1:]]
+        print(f"[oracle] EVAL: floor from 1 pano/room ({len(inputs)}); {len(extras)} held-out views")
+    else:
+        inputs, extras = list(panos), []
+        print(f"[oracle] FULL floor from all {len(inputs)} panos")
 
     full, rgbs, poses = build_floor(fl, meters, a.home, inputs, H, W, a.stride, a.max_depth, a.scale_mult)
     if full is None:
         raise SystemExit("no panos could be loaded — check --home / that GT panos exist there")
     from sparsepano.gs import gsplat_init as gi
     gi.write_point_ply(str(out / "floor.ply"), full)
+    print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> {out}/floor.ply")
 
     # convention from ONE room only (avoids multi-room bleed -> a clean, high-PSNR basis)
     g0, p0 = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult)
     basis, vflip, cpsnr = gs_optim.auto_convention(g0, [rgbs[0]], [p0], fov=a.fov, size=min(a.size, 256))
     print(f"[oracle] convention (single room): basis PSNR {cpsnr:.1f} dB  vflip={vflip}"
-          + ("  !! LOW — inspect heldout_*.png" if cpsnr < 22 else ""))
+          + ("  !! LOW — inspect renders" if cpsnr < 22 else ""))
 
     rows = []
-    for star in extras[: a.max_rooms]:
-        room = fl.panos[star]["room"]
-        real = _pano_rgb(a.home, star, (H, W))
-        pose = zind._pose_c2w(fl.panos[star], meters)
-        preds = render_tiles(full, pose, basis, vflip, yaws, a.fov, a.size, device)   # UPRIGHT
-        ps, ss_, lps, covs = [], [], [], []
-        panels = []
-        for y, (prgb, alpha) in zip(yaws, preds):
-            gt = panoproj.e2p(real, y, 0, a.fov, (a.size, a.size))                    # real, upright
-            m = alpha > a.alpha_thr
-            covs.append(float(m.mean()))
-            if m.sum() > 50:
-                ps.append(_psnr(gt, prgb, m)); ss_.append(_ssim(gt, prgb)); lps.append(lp(gt, prgb))
-            if not panels:
-                holes = prgb.copy(); holes[~m] = (0, 0, 255)                          # red = unobserved
-                panels = [_label(gt, "GT (real pano)"), _label(prgb, "oracle render"),
-                          _label(holes, "red = holes/unobserved")]
-        cv2.imwrite(str(out / f"heldout_{room}_{star[-6:]}.png"),
-                    cv2.cvtColor(np.concatenate(panels, 1), cv2.COLOR_RGB2BGR))
-        row = dict(room=room, held_out=star, coverage=round(float(np.mean(covs)), 3),
-                   psnr=round(float(np.nanmean(ps)), 2) if ps else float("nan"),
-                   ssim=round(float(np.nanmean(ss_)), 3) if ss_ else float("nan"),
-                   lpips=round(float(np.nanmean(lps)), 3) if any(np.isfinite(lps)) else float("nan"))
-        rows.append(row); print("  ", row)
-
-    # summary FIRST (so a walkthrough failure can't lose the metrics)
-    with open(out / "metrics.csv", "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else
-                           ["room", "held_out", "coverage", "psnr", "ssim", "lpips"])
-        w.writeheader(); w.writerows(rows)
-    if rows:
-        agg = {k: round(float(np.nanmean([r[k] for r in rows])), 3) for k in ("coverage", "psnr", "ssim", "lpips")}
-        print(f"\n==== ORACLE upper bound — {a.tag} ====\n  rooms scored: {len(rows)}   mean: {agg}")
-        print(f"  wrote {out}/metrics.csv, floor.ply, heldout_*.png")
+    if not a.eval:
+        # full-floor mode: a forward "real vs render" panel from a few room cameras
+        for s in inputs[: a.max_rooms]:
+            real = _pano_rgb(a.home, s, (H, W))
+            pose = zind._pose_c2w(fl.panos[s], meters)
+            prgb, alpha = render_tiles(full, pose, basis, vflip, [0.0], a.fov, a.size, device)[0]
+            gt = panoproj.e2p(real, 0, 0, a.fov, (a.size, a.size))
+            cv2.imwrite(str(out / f"view_{fl.panos[s]['room']}_{s[-6:]}.png"),
+                        cv2.cvtColor(np.concatenate([_label(gt, "real pano"),
+                                     _label(prgb, "floor render")], 1), cv2.COLOR_RGB2BGR))
+        print(f"[oracle] wrote {min(len(inputs), a.max_rooms)} view_*.png (real | render)")
+    else:
+        for star in extras[: a.max_rooms]:
+            room = fl.panos[star]["room"]
+            real = _pano_rgb(a.home, star, (H, W))
+            pose = zind._pose_c2w(fl.panos[star], meters)
+            preds = render_tiles(full, pose, basis, vflip, yaws, a.fov, a.size, device)   # UPRIGHT
+            ps, ss_, lps, covs, panels = [], [], [], [], []
+            for y, (prgb, alpha) in zip(yaws, preds):
+                gt = panoproj.e2p(real, y, 0, a.fov, (a.size, a.size))
+                m = alpha > a.alpha_thr
+                covs.append(float(m.mean()))
+                if m.sum() > 50:
+                    ps.append(_psnr(gt, prgb, m)); ss_.append(_ssim(gt, prgb)); lps.append(lp(gt, prgb))
+                if not panels:
+                    holes = prgb.copy(); holes[~m] = (0, 0, 255)
+                    panels = [_label(gt, "GT (real pano)"), _label(prgb, "oracle render"),
+                              _label(holes, "red = holes/unobserved")]
+            cv2.imwrite(str(out / f"heldout_{room}_{star[-6:]}.png"),
+                        cv2.cvtColor(np.concatenate(panels, 1), cv2.COLOR_RGB2BGR))
+            row = dict(room=room, held_out=star, coverage=round(float(np.mean(covs)), 3),
+                       psnr=round(float(np.nanmean(ps)), 2) if ps else float("nan"),
+                       ssim=round(float(np.nanmean(ss_)), 3) if ss_ else float("nan"),
+                       lpips=round(float(np.nanmean(lps)), 3) if any(np.isfinite(lps)) else float("nan"))
+            rows.append(row); print("  ", row)
+        with open(out / "metrics.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else
+                               ["room", "held_out", "coverage", "psnr", "ssim", "lpips"])
+            w.writeheader(); w.writerows(rows)
+        if rows:
+            agg = {k: round(float(np.nanmean([r[k] for r in rows])), 3) for k in ("coverage", "psnr", "ssim", "lpips")}
+            print(f"\n==== ORACLE held-out — {a.tag} ====\n  rooms scored: {len(rows)}   mean: {agg}")
 
     # walkthrough LAST + guarded (never lose metrics to a render hiccup)
     if a.walkthrough and len(poses) >= 2:
@@ -269,6 +294,8 @@ if __name__ == "__main__":
     ap.add_argument("--yaws", type=int, default=4, help="tiles per held-out view")
     ap.add_argument("--alpha_thr", type=float, default=0.5)
     ap.add_argument("--max_rooms", type=int, default=8)
+    ap.add_argument("--eval", action="store_true",
+                    help="held-out novel-view metrics (1 pano/room in, rest scored). Default: full floor from all panos.")
     ap.add_argument("--walkthrough", action="store_true")
     ap.add_argument("--walk_steps", type=int, default=8)
     a = ap.parse_args()
