@@ -19,9 +19,10 @@ echo "warming the SD-2-inpainting cache into $HF_HOME ..."
 # import torch from the fmodels venv, NOT cineca's: strip PYTHONPATH (cineca torch shadow) and
 # point LD_LIBRARY_PATH at only gcc-12 libstdc++ (no cineca CUDA shadow) — same fix as the runs.
 GCCLIB="$(dirname "$(g++ -print-file-name=libstdc++.so.6 2>/dev/null)")"; [[ "$GCCLIB" == /* ]] || GCCLIB=""
-# also unset any stale HF token in the env — a bad token gives 401 on PUBLIC repos; anonymous works.
-HF_HUB_OFFLINE=0 env -u PYTHONPATH -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN -u HUGGINGFACE_TOKEN \
-    LD_LIBRARY_PATH="$GCCLIB" HF_HOME="$HF_HOME" "$FMODELS/bin/python" - <<'PY'
+# pass a VALID HF_TOKEN through (this model needs login). Set it first:  export HF_TOKEN=hf_...
+: "${HF_TOKEN:?Set a valid token first — run:  export HF_TOKEN=hf_yourNewToken  (and accept the model card at huggingface.co/stabilityai/stable-diffusion-2-inpainting)}"
+HF_HUB_OFFLINE=0 env -u PYTHONPATH LD_LIBRARY_PATH="$GCCLIB" HF_HOME="$HF_HOME" \
+    HF_TOKEN="$HF_TOKEN" "$FMODELS/bin/python" - <<'PY'
 
 import torch
 from diffusers import StableDiffusionInpaintPipeline
