@@ -208,10 +208,11 @@ def main(a):
     gi.write_point_ply(str(out / "floor.ply"), full)
     print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> {out}/floor.ply")
 
-    # convention from ONE room only (avoids multi-room bleed -> a clean, high-PSNR basis)
-    g0, p0 = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult)
+    # convention from ONE SOLID room (no door-holes, no pole-thinning) -> a clean, reliable basis.
+    g0, p0 = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult,
+                            mask_doors=False, thin_poles=False)
     basis, vflip, cpsnr = gs_optim.auto_convention(g0, [rgbs[0]], [p0], fov=a.fov, size=min(a.size, 256))
-    print(f"[oracle] convention (single room): basis PSNR {cpsnr:.1f} dB  vflip={vflip}"
+    print(f"[oracle] convention (solid single room): basis PSNR {cpsnr:.1f} dB  vflip={vflip}"
           + ("  !! LOW — inspect renders" if cpsnr < 22 else ""))
 
     rows = []
@@ -275,7 +276,17 @@ def main(a):
                 if vflip:
                     rgb = rgb[::-1].copy()
                 cv2.imwrite(str(wdir / f"f{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
-            print(f"[oracle] wrote {n} walkthrough frames -> {wdir}  (ffmpeg -framerate 8 -i f%03d.png walk.mp4)")
+            print(f"[oracle] wrote {n} walkthrough frames -> {wdir}")
+            # encode to mp4 if ffmpeg is available; else leave frames + the manual command
+            import shutil, subprocess
+            mp4 = out / "walkthrough.mp4"
+            if shutil.which("ffmpeg"):
+                subprocess.run(["ffmpeg", "-y", "-framerate", "8", "-i", str(wdir / "f%03d.png"),
+                                "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                                str(mp4)], check=True, capture_output=True)
+                print(f"[oracle] encoded {mp4}")
+            else:
+                print(f"[oracle] ffmpeg not found; encode with: ffmpeg -framerate 8 -i {wdir}/f%03d.png {mp4}")
         except Exception as e:
             print(f"[oracle] walkthrough skipped ({e})")
 
