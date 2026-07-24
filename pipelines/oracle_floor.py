@@ -271,19 +271,19 @@ def _label(img, text):
 
 
 # ------------------------------------------------------------- generative completion
+SD_INPAINT_MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"   # public, ungated
+
+
 def load_sd_inpainter(device):
-    """Stable-Diffusion inpainting pipeline (the generative backend). Weights must be cached on a
-    login node first (compute nodes are offline) — see scripts/setup_sd_inpaint.sh."""
+    """SDXL inpainting pipeline (the generative backend). Weights must be cached on a login node
+    first (compute nodes are offline) — see scripts/setup_sd_inpaint.sh."""
     import torch
-    from diffusers import StableDiffusionInpaintPipeline
-    pipe = StableDiffusionInpaintPipeline.from_pretrained(
-        "stabilityai/stable-diffusion-2-inpainting",
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32)
+    from diffusers import AutoPipelineForInpainting
+    pipe = AutoPipelineForInpainting.from_pretrained(
+        SD_INPAINT_MODEL,
+        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+        variant="fp16")
     pipe = pipe.to(device); pipe.set_progress_bar_config(disable=True)
-    try:
-        pipe.safety_checker = None
-    except Exception:
-        pass
     return pipe
 
 
@@ -300,9 +300,9 @@ def inpaint_holes(rgb, alpha, thr, backend="cv2", sd=None, prompt="a realistic e
         H, W = rgb.shape[:2]
         img = Image.fromarray(rgb).resize((512, 512))
         msk = Image.fromarray(hole * 255).resize((512, 512))
-        gen = sd(prompt=prompt, image=img, mask_image=msk, num_inference_steps=20,
-                 guidance_scale=7.0).images[0]
-        return np.array(gen.resize((W, H)))
+        gen = sd(prompt=prompt, image=img, mask_image=msk, num_inference_steps=15,
+                 guidance_scale=7.0, strength=0.99).images[0]        # SDXL inpaint needs strength<1
+        return np.array(gen.convert("RGB").resize((W, H)))
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     out = cv2.inpaint(bgr, hole * 255, 3, cv2.INPAINT_TELEA)       # classical fallback
     return cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
