@@ -16,7 +16,10 @@ env -u PYTHONPATH -u LD_LIBRARY_PATH "$FMODELS/bin/python" -m pip install --no-i
     diffusers transformers accelerate safetensors
 
 echo "warming the SD-2-inpainting cache into $HF_HOME ..."
-HF_HUB_OFFLINE=0 env -u LD_LIBRARY_PATH "$FMODELS/bin/python" - <<'PY'
+# import torch from the fmodels venv, NOT cineca's: strip PYTHONPATH (cineca torch shadow) and
+# point LD_LIBRARY_PATH at only gcc-12 libstdc++ (no cineca CUDA shadow) — same fix as the runs.
+GCCLIB="$(dirname "$(g++ -print-file-name=libstdc++.so.6 2>/dev/null)")"; [[ "$GCCLIB" == /* ]] || GCCLIB=""
+HF_HUB_OFFLINE=0 env -u PYTHONPATH LD_LIBRARY_PATH="$GCCLIB" HF_HOME="$HF_HOME" "$FMODELS/bin/python" - <<'PY'
 
 import torch
 from diffusers import StableDiffusionInpaintPipeline
