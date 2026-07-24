@@ -23,7 +23,7 @@ SIZE=512                              # tile render size
 YAWS=4                                # held-out tiles per view
 WALK="--walkthrough"                  # "" to skip the walkthrough frames
 FMODELS="/leonardo_work/EUHPC_D35_121/envs/fmodels"
-EXTRA=""
+EXTRA="--inpaint sd"
 # =============================================================================
 
 set -eo pipefail
