@@ -83,11 +83,18 @@ def _psnr(a, b, m):
 
 
 def _ssim(a, b):
-    try:
-        from skimage.metrics import structural_similarity as ssim
-        return float(ssim(a, b, channel_axis=2))
-    except Exception:
-        return float("nan")
+    """Grayscale Gaussian-window SSIM in numpy (no skimage dependency)."""
+    ga = cv2.cvtColor(a, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    gb = cv2.cvtColor(b, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    C1, C2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    k = (11, 11); s = 1.5
+    mu_a = cv2.GaussianBlur(ga, k, s); mu_b = cv2.GaussianBlur(gb, k, s)
+    va = cv2.GaussianBlur(ga * ga, k, s) - mu_a ** 2
+    vb = cv2.GaussianBlur(gb * gb, k, s) - mu_b ** 2
+    vab = cv2.GaussianBlur(ga * gb, k, s) - mu_a * mu_b
+    ssim = ((2 * mu_a * mu_b + C1) * (2 * vab + C2)) / \
+           ((mu_a ** 2 + mu_b ** 2 + C1) * (va + vb + C2) + 1e-12)
+    return float(np.clip(ssim, -1, 1).mean())
 
 
 class _LPIPS:
@@ -147,74 +154,81 @@ def main(a):
     yaws = list(np.linspace(0, 360, a.yaws, endpoint=False))
     lp = _LPIPS(device)
 
-    # full floor (for convention + hero renders + ply)
-    full, rgbs, poses = build_floor(fl, meters, a.home, panos, H, W, a.stride, a.max_depth, a.scale_mult)
+    # ONE real pano per room (target setting) = the floor input; the rest are held-out.
+    by_room = {}
+    for s in panos:
+        by_room.setdefault(fl.panos[s]["room"], []).append(s)
+    inputs = [ss[0] for ss in by_room.values()]                # one primary pano per room
+    extras = [s for ss in by_room.values() for s in ss[1:]]    # held-out novel views
+    print(f"[oracle] {len(inputs)} rooms -> floor from 1 pano/room; {len(extras)} held-out views")
+
+    full, rgbs, poses = build_floor(fl, meters, a.home, inputs, H, W, a.stride, a.max_depth, a.scale_mult)
     if full is None:
         raise SystemExit("no panos could be loaded — check --home / that GT panos exist there")
     from sparsepano.gs import gsplat_init as gi
     gi.write_point_ply(str(out / "floor.ply"), full)
-    basis, vflip, cpsnr = gs_optim.auto_convention(full, rgbs, poses, fov=a.fov, size=min(a.size, 256))
-    print(f"[oracle] convention: basis PSNR {cpsnr:.1f} dB  vflip={vflip}")
 
-    # rooms with >=2 panos -> held-out novel view
-    by_room = {}
-    for s in panos:
-        by_room.setdefault(fl.panos[s]["room"], []).append(s)
-    heldout = [(r, ss) for r, ss in by_room.items() if len(ss) >= 2]
-    print(f"[oracle] {len(heldout)} rooms have >=2 panos -> held-out eval")
+    # convention from ONE room only (avoids multi-room bleed -> a clean, high-PSNR basis)
+    g0, p0 = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult)
+    basis, vflip, cpsnr = gs_optim.auto_convention(g0, [rgbs[0]], [p0], fov=a.fov, size=min(a.size, 256))
+    print(f"[oracle] convention (single room): basis PSNR {cpsnr:.1f} dB  vflip={vflip}"
+          + ("  !! LOW — inspect heldout_*.png" if cpsnr < 22 else ""))
 
     rows = []
-    for room, ss in heldout[: a.max_rooms]:
-        star = ss[0]                                          # hold this one out
-        rest = [s for s in panos if s != star]
-        floor_g, _, _ = build_floor(fl, meters, a.home, rest, H, W, a.stride, a.max_depth, a.scale_mult)
+    for star in extras[: a.max_rooms]:
+        room = fl.panos[star]["room"]
         real = _pano_rgb(a.home, star, (H, W))
         pose = zind._pose_c2w(fl.panos[star], meters)
-        preds = render_tiles(floor_g, pose, basis, yaws, a.fov, a.size, device)
+        preds = render_tiles(full, pose, basis, yaws, a.fov, a.size, device)
         ps, ss_, lps, covs = [], [], [], []
+        panels = []
         for y, (prgb, alpha) in zip(yaws, preds):
             gt = panoproj.e2p(real, y, 0, a.fov, (a.size, a.size))
             if vflip:
-                gt = gt[::-1].copy(); prgb = prgb[::-1].copy(); alpha = alpha[::-1].copy()
+                gt = gt[::-1].copy()                           # flip GT ONLY to match render convention
             m = alpha > a.alpha_thr
             covs.append(float(m.mean()))
             if m.sum() > 50:
                 ps.append(_psnr(gt, prgb, m)); ss_.append(_ssim(gt, prgb)); lps.append(lp(gt, prgb))
-        # save one qualitative panel (GT | pred | holes) at yaw 0
-        prgb0, al0 = preds[0]
-        gt0 = panoproj.e2p(real, yaws[0], 0, a.fov, (a.size, a.size))
-        holes = prgb0.copy(); holes[al0 <= a.alpha_thr] = (255, 0, 0)
-        cv2.imwrite(str(out / f"heldout_{room}.png"),
-                    cv2.cvtColor(np.concatenate([gt0, prgb0, holes], 1), cv2.COLOR_RGB2BGR))
-        row = dict(room=room, held_out=star, n_panos=len(ss),
-                   coverage=round(np.mean(covs), 3),
-                   psnr=round(np.nanmean(ps), 2) if ps else float("nan"),
-                   ssim=round(np.nanmean(ss_), 3) if ss_ else float("nan"),
-                   lpips=round(np.nanmean(lps), 3) if lps else float("nan"))
+            if not panels:
+                holes = prgb.copy(); holes[~m] = (255, 0, 0)
+                panels = [gt, prgb, holes]
+        cv2.imwrite(str(out / f"heldout_{room}_{star[-6:]}.png"),
+                    cv2.cvtColor(np.concatenate(panels, 1), cv2.COLOR_RGB2BGR))
+        row = dict(room=room, held_out=star, coverage=round(float(np.mean(covs)), 3),
+                   psnr=round(float(np.nanmean(ps)), 2) if ps else float("nan"),
+                   ssim=round(float(np.nanmean(ss_)), 3) if ss_ else float("nan"),
+                   lpips=round(float(np.nanmean(lps)), 3) if any(np.isfinite(lps)) else float("nan"))
         rows.append(row); print("  ", row)
 
-    # walkthrough: perspective frames stepping along the pano polyline
-    if a.walkthrough and len(poses) >= 2:
-        wdir = out / "walkthrough"; wdir.mkdir(exist_ok=True)
-        cen = np.array([p[:3, 3] for p in poses])
-        path = np.concatenate([np.linspace(cen[i], cen[i + 1], a.walk_steps, endpoint=False)
-                               for i in range(len(cen) - 1)])
-        from pipelines.gs_room_prototype import _lookat_c2w, gsplat_render
-        for i, c in enumerate(path):
-            tgt = path[min(i + 3, len(path) - 1)]
-            rgb, _ = gsplat_render(full, _lookat_c2w(c, tgt), basis, a.fov, a.size, device)
-            cv2.imwrite(str(wdir / f"f{i:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-        print(f"[oracle] wrote {len(path)} walkthrough frames -> {wdir}  (ffmpeg -i f%03d.png walk.mp4)")
-
-    # summary
+    # summary FIRST (so a walkthrough failure can't lose the metrics)
     with open(out / "metrics.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else
-                           ["room", "held_out", "n_panos", "coverage", "psnr", "ssim", "lpips"])
+                           ["room", "held_out", "coverage", "psnr", "ssim", "lpips"])
         w.writeheader(); w.writerows(rows)
     if rows:
         agg = {k: round(float(np.nanmean([r[k] for r in rows])), 3) for k in ("coverage", "psnr", "ssim", "lpips")}
         print(f"\n==== ORACLE upper bound — {a.tag} ====\n  rooms scored: {len(rows)}   mean: {agg}")
         print(f"  wrote {out}/metrics.csv, floor.ply, heldout_*.png")
+
+    # walkthrough LAST + guarded (never lose metrics to a render hiccup)
+    if a.walkthrough and len(poses) >= 2:
+        try:
+            from pipelines.gs_room_prototype import _lookat_c2w, gsplat_render
+            wdir = out / "walkthrough"; wdir.mkdir(exist_ok=True)
+            cen = np.array([p[:3, 3] for p in poses])
+            path = np.concatenate([np.linspace(cen[i], cen[i + 1], a.walk_steps, endpoint=False)
+                                   for i in range(len(cen) - 1)] + [cen[-1:]])
+            n = 0
+            for i, c in enumerate(path):
+                tgt = path[min(i + 3, len(path) - 1)]
+                if np.linalg.norm(tgt - c) < 1e-4:            # degenerate look-at -> skip
+                    continue
+                rgb, _ = gsplat_render(full, _lookat_c2w(c, tgt), basis, a.fov, a.size, device)
+                cv2.imwrite(str(wdir / f"f{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
+            print(f"[oracle] wrote {n} walkthrough frames -> {wdir}  (ffmpeg -framerate 8 -i f%03d.png walk.mp4)")
+        except Exception as e:
+            print(f"[oracle] walkthrough skipped ({e})")
 
 
 if __name__ == "__main__":
