@@ -18,12 +18,12 @@
 HOMES=(0000)                          # ZInD homes to process
 FLOORS=(floor_01)                     # floors per home (must have >=2-pano connected rooms)
 GS_H=1024                             # pano/depth height for GS init
-STRIDE=3                              # GS init stride (smaller = denser)
+STRIDE=2                              # GS init stride (smaller = denser)
 SIZE=512                              # tile render size
 YAWS=4                                # held-out tiles per view
 WALK="--walkthrough"                  # "" to skip the walkthrough frames
 FMODELS="/leonardo_work/EUHPC_D35_121/envs/fmodels"
-EXTRA="--inpaint sd"
+EXTRA="--inpaint cv2 --scale_mult 2.5 --walk_size 768 --walk_steps 22 --walk_fps 24"
 # =============================================================================
 
 set -eo pipefail

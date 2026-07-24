@@ -270,6 +270,30 @@ def _label(img, text):
     return img
 
 
+def _smooth_tour(centers, steps=18, eye_h=None):
+    """Turn scattered pano positions into a smooth, slow walkthrough path: order them by a greedy
+    nearest-neighbour tour (no cross-floor jumps), fix a constant eye height, and Catmull-Rom
+    interpolate. Returns a dense sequence of camera positions."""
+    pts = [np.asarray(c, float) for c in centers]
+    order, used = [0], {0}
+    for _ in range(len(pts) - 1):
+        last = order[-1]
+        nxt = min((np.linalg.norm(pts[i] - pts[last]), i) for i in range(len(pts)) if i not in used)[1]
+        order.append(nxt); used.add(nxt)
+    P = np.array([pts[i] for i in order])
+    P[:, 1] = eye_h if eye_h is not None else float(np.median(P[:, 1]))
+    def cr(p0, p1, p2, p3, t):
+        t2, t3 = t * t, t * t * t
+        return 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+                      + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+    ext = np.vstack([P[0], P, P[-1]]); path = []
+    for i in range(1, len(ext) - 2):
+        for s in range(steps):
+            path.append(cr(ext[i - 1], ext[i], ext[i + 1], ext[i + 2], s / steps))
+    path.append(P[-1])
+    return np.array(path)
+
+
 # ------------------------------------------------------------- generative completion
 SD_INPAINT_MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"   # public, ungated
 
@@ -402,33 +426,33 @@ def main(a):
                     sd = load_sd_inpainter(device); print("[oracle] SD inpainter loaded")
                 except Exception as e:
                     print(f"[oracle] SD inpainter unavailable ({e}); falling back to cv2"); a.inpaint = "cv2"
-            cen = np.array([p[:3, 3] for p in poses])
-            path = np.concatenate([np.linspace(cen[i], cen[i + 1], a.walk_steps, endpoint=False)
-                                   for i in range(len(cen) - 1)] + [cen[-1:]])
+            path = _smooth_tour([p[:3, 3] for p in poses], steps=a.walk_steps)   # smooth NN tour
+            wsize = a.walk_size or a.size
             n = 0
             for i, c in enumerate(path):
-                tgt = path[min(i + 3, len(path) - 1)]
-                if np.linalg.norm(tgt - c) < 1e-4:            # degenerate look-at -> skip
+                tgt = path[min(i + 6, len(path) - 1)]                            # look ahead along the path
+                if np.linalg.norm(tgt - c) < 1e-4:
                     continue
                 rgb, alpha = gsplat_render(full, _lookat_c2w(c, tgt), np.eye(3, dtype=np.float32),
-                                           a.fov, a.size, device)
+                                           a.fov, wsize, device)
                 if vflip:
                     rgb, alpha = rgb[::-1].copy(), alpha[::-1].copy()
-                cv2.imwrite(str(wdir / f"raw_{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-                if a.inpaint != "none":                       # generative completion of the holes
+                cv2.imwrite(str(wdir / f"raw_{n:04d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+                if a.inpaint != "none":
                     rgb = inpaint_holes(rgb, alpha, a.alpha_thr, backend=a.inpaint, sd=sd)
-                cv2.imwrite(str(wdir / f"f{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
-            print(f"[oracle] wrote {n} walkthrough frames (raw_*.png + inpaint='{a.inpaint}' f*.png) -> {wdir}")
+                cv2.imwrite(str(wdir / f"f{n:04d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
+            print(f"[oracle] wrote {n} walkthrough frames @ {wsize}px (smooth tour, inpaint='{a.inpaint}') -> {wdir}")
             # encode to mp4 if ffmpeg is available; else leave frames + the manual command
             import shutil, subprocess
             mp4 = out / "walkthrough.mp4"
             if shutil.which("ffmpeg"):
-                subprocess.run(["ffmpeg", "-y", "-framerate", "8", "-i", str(wdir / "f%03d.png"),
+                subprocess.run(["ffmpeg", "-y", "-framerate", str(a.walk_fps), "-i", str(wdir / "f%04d.png"),
                                 "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
                                 str(mp4)], check=True, capture_output=True)
                 print(f"[oracle] encoded {mp4}")
             else:
-                print(f"[oracle] ffmpeg not found; encode with: ffmpeg -framerate 8 -i {wdir}/f%03d.png {mp4}")
+                print(f"[oracle] ffmpeg not found; encode with: "
+                      f"ffmpeg -framerate {a.walk_fps} -i {wdir}/f%04d.png -pix_fmt yuv420p {mp4}")
         except Exception as e:
             print(f"[oracle] walkthrough skipped ({e})")
 
@@ -458,6 +482,8 @@ if __name__ == "__main__":
     ap.add_argument("--walkthrough", action="store_true")
     ap.add_argument("--inpaint", choices=["none", "cv2", "sd"], default="cv2",
                     help="fill walkthrough holes: none | cv2 (classical, offline) | sd (Stable-Diffusion generative)")
-    ap.add_argument("--walk_steps", type=int, default=8)
+    ap.add_argument("--walk_steps", type=int, default=18, help="interpolation steps per tour segment (higher = slower/smoother)")
+    ap.add_argument("--walk_size", type=int, default=0, help="walkthrough render size (px); 0 = use --size")
+    ap.add_argument("--walk_fps", type=int, default=24, help="mp4 frame rate")
     a = ap.parse_args()
     main(a)
