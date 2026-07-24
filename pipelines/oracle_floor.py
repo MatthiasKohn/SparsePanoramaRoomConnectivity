@@ -58,6 +58,35 @@ def _pose_c2w_fixed(info, S):
     return T
 
 
+def _pose_c2w_render(info, S):
+    """PROPER (det=+1) camera at the pano's position, forward = Ry(-rot_deg). gsplat can't render
+    through the reflected build-pose, so we render the (correct-world) gaussians from this proper
+    camera and flip the OUTPUT to match the pano's reflected imaging (see calibrate_render)."""
+    rot = np.radians(info["rot_deg"]); C, Sr = np.cos(rot), np.sin(rot)
+    R = np.array([[C, 0.0, -Sr], [0.0, 1.0, 0.0], [Sr, 0.0, C]])     # Ry(-rot), proper
+    pos = np.asarray(info["pos"], float)
+    T = np.eye(4); T[:3, :3] = R
+    T[:3, 3] = [pos[0] * S, float(info.get("cam_h_m") or 0.0), pos[1] * S]
+    return T
+
+
+def calibrate_render(g, rgb, pose_proper, fov, size, device):
+    """Find the (hflip, vflip) that make a proper-camera render match the real pano. hflip is
+    expected (pano imaging is left-right reflected); vflip covers gsplat's y-down convention."""
+    from pipelines.gs_room_prototype import gsplat_render
+    gt = panoproj.e2p(rgb, 0, 0, fov, (size, size)).astype(np.float32)
+    r0, _ = gsplat_render(g, pose_proper, np.eye(3, dtype=np.float32), fov, size, device)
+    best = (1e18, False, False)
+    for hf in (False, True):
+        for vf in (False, True):
+            r = r0[:, ::-1] if hf else r0
+            r = r[::-1] if vf else r
+            m = float(np.mean((r.astype(np.float32) - gt) ** 2))
+            if m < best[0]:
+                best = (m, hf, vf)
+    return best[1], best[2], 99.0 if best[0] < 1e-6 else 10 * np.log10(255.0 ** 2 / best[0])
+
+
 def _pano_rgb(home, stem, hw):
     p = Path(home) / "panos" / f"{stem}.jpg"
     im = cv2.imread(str(p))
@@ -170,15 +199,18 @@ def pose_rmse(gt_c2w, est_c2w):
 
 
 # --------------------------------------------------------------------- rendering
-def render_tiles(g, pose_c2w, basis, vflip, yaws, fov, size, device):
-    """Perspective tiles at a pose (yaw sweep, pitch 0), returned UPRIGHT. gsplat's render is
-    vertically mirrored when the convention has vflip=True, so we flip it back here."""
+def render_tiles(g, pose_proper, hflip, vflip, yaws, fov, size, device):
+    """Perspective tiles from a PROPER camera at pose_proper (yaw sweep), flipped to match the
+    pano's imaging. basis=identity (the proper pose already carries the rotation)."""
     from pipelines.gs_room_prototype import gsplat_render
+    I = np.eye(3, dtype=np.float32)
     out = []
     for y in yaws:
-        c2w = pose_c2w.copy()
-        c2w[:3, :3] = pose_c2w[:3, :3] @ gs_optim._Ry(np.radians(y))
-        rgb, alpha = gsplat_render(g, c2w, basis, fov, size, device)
+        c2w = pose_proper.copy()
+        c2w[:3, :3] = pose_proper[:3, :3] @ gs_optim._Ry(np.radians(-y))
+        rgb, alpha = gsplat_render(g, c2w, I, fov, size, device)
+        if hflip:
+            rgb, alpha = rgb[:, ::-1].copy(), alpha[:, ::-1].copy()
         if vflip:
             rgb, alpha = rgb[::-1].copy(), alpha[::-1].copy()
         out.append((rgb, alpha))
@@ -222,20 +254,21 @@ def main(a):
     gi.write_point_ply(str(out / "floor.ply"), full)
     print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> {out}/floor.ply")
 
-    # convention from ONE SOLID room (no door-holes, no pole-thinning) -> a clean, reliable basis.
-    g0, p0 = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult,
-                            mask_doors=False, thin_poles=False)
-    basis, vflip, cpsnr = gs_optim.auto_convention(g0, [rgbs[0]], [p0], fov=a.fov, size=min(a.size, 256))
-    print(f"[oracle] convention (solid single room): basis PSNR {cpsnr:.1f} dB  vflip={vflip}"
-          + ("  !! LOW — inspect renders" if cpsnr < 22 else ""))
+    # render calibration: proper camera + (hflip,vflip) that matches the real pano (solid room).
+    g0, _ = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult,
+                           mask_doors=False, thin_poles=False)
+    pose0 = _pose_c2w_render(fl.panos[inputs[0]], meters)
+    hflip, vflip, cpsnr = calibrate_render(g0, rgbs[0], pose0, a.fov, min(a.size, 256), device)
+    print(f"[oracle] render calib: hflip={hflip} vflip={vflip}  match PSNR {cpsnr:.1f} dB"
+          + ("  !! LOW — inspect renders" if cpsnr < 18 else ""))
 
     rows = []
     if not a.eval:
         # full-floor mode: a forward "real vs render" panel from a few room cameras
         for s in inputs[: a.max_rooms]:
             real = _pano_rgb(a.home, s, (H, W))
-            pose = _pose_c2w_fixed(fl.panos[s], meters)
-            prgb, alpha = render_tiles(full, pose, basis, vflip, [0.0], a.fov, a.size, device)[0]
+            pose = _pose_c2w_render(fl.panos[s], meters)
+            prgb, alpha = render_tiles(full, pose, hflip, vflip, [0.0], a.fov, a.size, device)[0]
             gt = panoproj.e2p(real, 0, 0, a.fov, (a.size, a.size))
             cv2.imwrite(str(out / f"view_{fl.panos[s]['room']}_{s[-6:]}.png"),
                         cv2.cvtColor(np.concatenate([_label(gt, "real pano"),
@@ -245,8 +278,8 @@ def main(a):
         for star in extras[: a.max_rooms]:
             room = fl.panos[star]["room"]
             real = _pano_rgb(a.home, star, (H, W))
-            pose = _pose_c2w_fixed(fl.panos[star], meters)
-            preds = render_tiles(full, pose, basis, vflip, yaws, a.fov, a.size, device)   # UPRIGHT
+            pose = _pose_c2w_render(fl.panos[star], meters)
+            preds = render_tiles(full, pose, hflip, vflip, yaws, a.fov, a.size, device)
             ps, ss_, lps, covs, panels = [], [], [], [], []
             for y, (prgb, alpha) in zip(yaws, preds):
                 gt = panoproj.e2p(real, y, 0, a.fov, (a.size, a.size))
@@ -286,7 +319,8 @@ def main(a):
                 tgt = path[min(i + 3, len(path) - 1)]
                 if np.linalg.norm(tgt - c) < 1e-4:            # degenerate look-at -> skip
                     continue
-                rgb, _ = gsplat_render(full, _lookat_c2w(c, tgt), basis, a.fov, a.size, device)
+                rgb, _ = gsplat_render(full, _lookat_c2w(c, tgt), np.eye(3, dtype=np.float32),
+                                       a.fov, a.size, device)
                 if vflip:
                     rgb = rgb[::-1].copy()
                 cv2.imwrite(str(wdir / f"f{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
