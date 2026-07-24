@@ -52,8 +52,21 @@ def _pano_rgb(home, stem, hw):
     return cv2.cvtColor(cv2.resize(im, (hw[1], hw[0])), cv2.COLOR_BGR2RGB)
 
 
-def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult):
+def _cull_depth_edges(depth, rel=0.15):
+    """Zero out depth at large discontinuities (wall<->ceiling/floor seams, opening edges) so we
+    don't splat 'rings' of points across those jumps. Zeroed pixels are skipped by backprojection."""
+    d = depth.copy()
+    gx = np.abs(np.diff(d, axis=1, prepend=d[:, :1]))
+    gy = np.abs(np.diff(d, axis=0, prepend=d[:1, :]))
+    thr = np.maximum(0.25, rel * d)                       # >=0.25 m or 15% of range
+    d[(gx > thr) | (gy > thr)] = 0.0
+    return d
+
+
+def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult, cull=True):
     depth = layout_depth.render_layout_depth(fl, stem, H, W, max_depth=max_depth)
+    if cull:
+        depth = _cull_depth_edges(depth)
     rgb = _pano_rgb(home, stem, (H, W))
     if rgb is None:
         return None, None
@@ -131,16 +144,26 @@ def pose_rmse(gt_c2w, est_c2w):
 
 
 # --------------------------------------------------------------------- rendering
-def render_tiles(g, pose_c2w, basis, yaws, fov, size, device):
-    """Perspective tiles at a pose (yaw sweep, pitch 0). Returns list of (rgb_uint8, alpha)."""
+def render_tiles(g, pose_c2w, basis, vflip, yaws, fov, size, device):
+    """Perspective tiles at a pose (yaw sweep, pitch 0), returned UPRIGHT. gsplat's render is
+    vertically mirrored when the convention has vflip=True, so we flip it back here."""
     from pipelines.gs_room_prototype import gsplat_render
     out = []
     for y in yaws:
         c2w = pose_c2w.copy()
         c2w[:3, :3] = pose_c2w[:3, :3] @ gs_optim._Ry(np.radians(y))
         rgb, alpha = gsplat_render(g, c2w, basis, fov, size, device)
+        if vflip:
+            rgb, alpha = rgb[::-1].copy(), alpha[::-1].copy()
         out.append((rgb, alpha))
     return out
+
+
+def _label(img, text):
+    img = img.copy()
+    cv2.rectangle(img, (0, 0), (img.shape[1], 22), (0, 0, 0), -1)
+    cv2.putText(img, text, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    return img
 
 
 # --------------------------------------------------------------------- main
@@ -179,20 +202,19 @@ def main(a):
         room = fl.panos[star]["room"]
         real = _pano_rgb(a.home, star, (H, W))
         pose = zind._pose_c2w(fl.panos[star], meters)
-        preds = render_tiles(full, pose, basis, yaws, a.fov, a.size, device)
+        preds = render_tiles(full, pose, basis, vflip, yaws, a.fov, a.size, device)   # UPRIGHT
         ps, ss_, lps, covs = [], [], [], []
         panels = []
         for y, (prgb, alpha) in zip(yaws, preds):
-            gt = panoproj.e2p(real, y, 0, a.fov, (a.size, a.size))
-            if vflip:
-                gt = gt[::-1].copy()                           # flip GT ONLY to match render convention
+            gt = panoproj.e2p(real, y, 0, a.fov, (a.size, a.size))                    # real, upright
             m = alpha > a.alpha_thr
             covs.append(float(m.mean()))
             if m.sum() > 50:
                 ps.append(_psnr(gt, prgb, m)); ss_.append(_ssim(gt, prgb)); lps.append(lp(gt, prgb))
             if not panels:
-                holes = prgb.copy(); holes[~m] = (255, 0, 0)
-                panels = [gt, prgb, holes]
+                holes = prgb.copy(); holes[~m] = (0, 0, 255)                          # red = unobserved
+                panels = [_label(gt, "GT (real pano)"), _label(prgb, "oracle render"),
+                          _label(holes, "red = holes/unobserved")]
         cv2.imwrite(str(out / f"heldout_{room}_{star[-6:]}.png"),
                     cv2.cvtColor(np.concatenate(panels, 1), cv2.COLOR_RGB2BGR))
         row = dict(room=room, held_out=star, coverage=round(float(np.mean(covs)), 3),
@@ -225,6 +247,8 @@ def main(a):
                 if np.linalg.norm(tgt - c) < 1e-4:            # degenerate look-at -> skip
                     continue
                 rgb, _ = gsplat_render(full, _lookat_c2w(c, tgt), basis, a.fov, a.size, device)
+                if vflip:
+                    rgb = rgb[::-1].copy()
                 cv2.imwrite(str(wdir / f"f{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
             print(f"[oracle] wrote {n} walkthrough frames -> {wdir}  (ffmpeg -framerate 8 -i f%03d.png walk.mp4)")
         except Exception as e:
