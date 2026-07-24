@@ -722,7 +722,7 @@ def parse_args():
     ap.add_argument("--pointcloud", help="Point cloud file (.ply, .pcd, .xyz, .txt, .npy).")
     ap.add_argument("--host", default="127.0.0.1", help="HTTP host to bind. Default: 127.0.0.1")
     ap.add_argument("--port", type=int, default=8765, help="HTTP port. Default: 8765")
-    ap.add_argument("--max_points", type=int, default=5000000, help="Maximum points sent to the browser.")
+    ap.add_argument("--max_points", type=int, default=8000000, help="Maximum points sent to the browser.")
     return ap.parse_args()
 
 
