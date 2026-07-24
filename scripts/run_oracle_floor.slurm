@@ -15,8 +15,8 @@
 #SBATCH --output=logs/%x_%j.out
 
 # ============================ CONFIG (edit me) ================================
-HOMES=(0072)                          # ZInD homes to process
-FLOORS=(floor_02)                     # floors per home (must have >=2-pano connected rooms)
+HOMES=(0000)                          # ZInD homes to process
+FLOORS=(floor_01)                     # floors per home (must have >=2-pano connected rooms)
 GS_H=1024                             # pano/depth height for GS init
 STRIDE=3                              # GS init stride (smaller = denser)
 SIZE=512                              # tile render size

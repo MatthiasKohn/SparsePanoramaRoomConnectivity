@@ -107,10 +107,12 @@ def _load_pager_depth(home, stem, H, W, sub):
     return d
 
 
-def fuse_layout_pager(layout, pager, margin=0.15):
+def fuse_layout_pager(layout, pager, margin=0.15, max_front=3.0):
     """Clean layout walls + PaGeR where furniture sticks out IN FRONT of the wall. PaGeR is
     scale/shift-aligned to the layout (robust affine fit), then used only where it reads
-    meaningfully closer than the wall -> objects appear, walls stay exact, doorway holes stay holes."""
+    meaningfully closer than the wall -> objects appear, walls stay exact, doorway holes stay holes.
+    max_front caps how far PaGeR may protrude (furniture is < ~1.5 m deep) so PaGeR misreads of
+    dark recesses (stairwells, open doorways) can't fling a blob into the room."""
     v = (layout > 0.1) & (pager > 0.1) & np.isfinite(pager)
     if v.sum() < 200:
         return layout
@@ -122,7 +124,7 @@ def fuse_layout_pager(layout, pager, margin=0.15):
         sol, *_ = np.linalg.lstsq(A, y * w, rcond=None); a, b = float(sol[0]), float(sol[1])
     pa = a * pager + b
     fused = layout.copy()
-    obj = v & (pa < layout - margin) & (pa > 0.1)
+    obj = v & (pa < layout - margin) & (pa > layout - max_front) & (pa > 0.1)   # in-front but not a blob
     fused[obj] = pa[obj]
     return fused
 
@@ -268,6 +270,44 @@ def _label(img, text):
     return img
 
 
+# ------------------------------------------------------------- generative completion
+def load_sd_inpainter(device):
+    """Stable-Diffusion inpainting pipeline (the generative backend). Weights must be cached on a
+    login node first (compute nodes are offline) — see scripts/setup_sd_inpaint.sh."""
+    import torch
+    from diffusers import StableDiffusionInpaintPipeline
+    pipe = StableDiffusionInpaintPipeline.from_pretrained(
+        "stabilityai/stable-diffusion-2-inpainting",
+        torch_dtype=torch.float16 if device == "cuda" else torch.float32)
+    pipe = pipe.to(device); pipe.set_progress_bar_config(disable=True)
+    try:
+        pipe.safety_checker = None
+    except Exception:
+        pass
+    return pipe
+
+
+def inpaint_holes(rgb, alpha, thr, backend="cv2", sd=None, prompt="a realistic empty interior room, wall and floor"):
+    """Fill unobserved (low-alpha) pixels. backend='cv2' = fast classical texture fill (offline,
+    deterministic -> stable in a video); 'sd' = Stable-Diffusion generative inpainting (plausible
+    new content, needs the cached model). Returns an RGB uint8 with holes filled."""
+    hole = (alpha < thr).astype(np.uint8)
+    if hole.sum() < 20:
+        return rgb
+    hole = cv2.dilate(hole, np.ones((3, 3), np.uint8), 1)          # bridge thin surfel gaps
+    if backend == "sd" and sd is not None:
+        from PIL import Image
+        H, W = rgb.shape[:2]
+        img = Image.fromarray(rgb).resize((512, 512))
+        msk = Image.fromarray(hole * 255).resize((512, 512))
+        gen = sd(prompt=prompt, image=img, mask_image=msk, num_inference_steps=20,
+                 guidance_scale=7.0).images[0]
+        return np.array(gen.resize((W, H)))
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    out = cv2.inpaint(bgr, hole * 255, 3, cv2.INPAINT_TELEA)       # classical fallback
+    return cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
+
+
 # --------------------------------------------------------------------- main
 def main(a):
     import torch
@@ -356,6 +396,12 @@ def main(a):
         try:
             from pipelines.gs_room_prototype import _lookat_c2w, gsplat_render
             wdir = out / "walkthrough"; wdir.mkdir(exist_ok=True)
+            sd = None
+            if a.inpaint == "sd":
+                try:
+                    sd = load_sd_inpainter(device); print("[oracle] SD inpainter loaded")
+                except Exception as e:
+                    print(f"[oracle] SD inpainter unavailable ({e}); falling back to cv2"); a.inpaint = "cv2"
             cen = np.array([p[:3, 3] for p in poses])
             path = np.concatenate([np.linspace(cen[i], cen[i + 1], a.walk_steps, endpoint=False)
                                    for i in range(len(cen) - 1)] + [cen[-1:]])
@@ -364,12 +410,15 @@ def main(a):
                 tgt = path[min(i + 3, len(path) - 1)]
                 if np.linalg.norm(tgt - c) < 1e-4:            # degenerate look-at -> skip
                     continue
-                rgb, _ = gsplat_render(full, _lookat_c2w(c, tgt), np.eye(3, dtype=np.float32),
-                                       a.fov, a.size, device)
+                rgb, alpha = gsplat_render(full, _lookat_c2w(c, tgt), np.eye(3, dtype=np.float32),
+                                           a.fov, a.size, device)
                 if vflip:
-                    rgb = rgb[::-1].copy()
+                    rgb, alpha = rgb[::-1].copy(), alpha[::-1].copy()
+                cv2.imwrite(str(wdir / f"raw_{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+                if a.inpaint != "none":                       # generative completion of the holes
+                    rgb = inpaint_holes(rgb, alpha, a.alpha_thr, backend=a.inpaint, sd=sd)
                 cv2.imwrite(str(wdir / f"f{n:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
-            print(f"[oracle] wrote {n} walkthrough frames -> {wdir}")
+            print(f"[oracle] wrote {n} walkthrough frames (raw_*.png + inpaint='{a.inpaint}' f*.png) -> {wdir}")
             # encode to mp4 if ffmpeg is available; else leave frames + the manual command
             import shutil, subprocess
             mp4 = out / "walkthrough.mp4"
@@ -407,6 +456,8 @@ if __name__ == "__main__":
                     help="also carve DOORS into holes (default: only true openings; keeps closed doors solid)")
     ap.set_defaults(fuse_pager=True)
     ap.add_argument("--walkthrough", action="store_true")
+    ap.add_argument("--inpaint", choices=["none", "cv2", "sd"], default="cv2",
+                    help="fill walkthrough holes: none | cv2 (classical, offline) | sd (Stable-Diffusion generative)")
     ap.add_argument("--walk_steps", type=int, default=8)
     a = ap.parse_args()
     main(a)
