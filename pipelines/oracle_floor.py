@@ -95,6 +95,38 @@ def _pano_rgb(home, stem, hw):
     return cv2.cvtColor(cv2.resize(im, (hw[1], hw[0])), cv2.COLOR_BGR2RGB)
 
 
+def _load_pager_depth(home, stem, H, W, sub):
+    p = Path(home) / sub / f"{stem}.npy"
+    if not p.exists():
+        return None
+    d = np.squeeze(np.load(p).astype(np.float32))
+    if d.ndim == 3:
+        d = d[..., 0] if d.shape[-1] == 1 else d[0]
+    if d.shape != (H, W):
+        d = cv2.resize(d, (W, H), interpolation=cv2.INTER_NEAREST)
+    return d
+
+
+def fuse_layout_pager(layout, pager, margin=0.15):
+    """Clean layout walls + PaGeR where furniture sticks out IN FRONT of the wall. PaGeR is
+    scale/shift-aligned to the layout (robust affine fit), then used only where it reads
+    meaningfully closer than the wall -> objects appear, walls stay exact, doorway holes stay holes."""
+    v = (layout > 0.1) & (pager > 0.1) & np.isfinite(pager)
+    if v.sum() < 200:
+        return layout
+    # robust affine fit  pager -> layout  (a few IRLS steps to shrug off outliers)
+    x, y = pager[v], layout[v]; a, b = 1.0, 0.0
+    for _ in range(3):
+        r = np.abs(a * x + b - y); w = 1.0 / (r + 0.1)
+        A = np.stack([x * w, w], 1)
+        sol, *_ = np.linalg.lstsq(A, y * w, rcond=None); a, b = float(sol[0]), float(sol[1])
+    pa = a * pager + b
+    fused = layout.copy()
+    obj = v & (pa < layout - margin) & (pa > 0.1)
+    fused[obj] = pa[obj]
+    return fused
+
+
 def _cull_depth_edges(depth, rel=0.15):
     """Zero out depth at large discontinuities (wall<->ceiling/floor seams, opening edges) so we
     don't splat 'rings' of points across those jumps. Zeroed pixels are skipped by backprojection."""
@@ -116,8 +148,14 @@ def _thin_poles(g, rng, min_keep=0.12):
 
 
 def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult, cull=True,
-                   mask_doors=True, thin_poles=True):
-    depth = layout_depth.render_layout_depth(fl, stem, H, W, max_depth=max_depth, mask_doors=mask_doors)
+                   mask_doors=True, thin_poles=True, carve_doors=False, fuse_pager=True,
+                   pager_sub="pager_depth/depth_meters"):
+    depth = layout_depth.render_layout_depth(fl, stem, H, W, max_depth=max_depth,
+                                             mask_doors=mask_doors, carve_doors=carve_doors)
+    if fuse_pager:                                    # add furniture from PaGeR where it exists
+        pg = _load_pager_depth(home, stem, H, W, pager_sub)
+        if pg is not None:
+            depth = fuse_layout_pager(depth, pg)
     if cull:
         depth = _cull_depth_edges(depth)
     rgb = _pano_rgb(home, stem, (H, W))
@@ -130,14 +168,20 @@ def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult, 
     return g, pose
 
 
-def build_floor(fl, meters, home, stems, H, W, stride, max_depth, scale_mult):
-    gs, rgbs, poses = [], [], []
+def build_floor(fl, meters, home, stems, H, W, stride, max_depth, scale_mult,
+                carve_doors=False, fuse_pager=True, pager_sub="pager_depth/depth_meters"):
+    gs, rgbs, poses, npg = [], [], [], 0
     for s in stems:
-        g, pose = room_gaussians(fl, meters, home, s, H, W, stride, max_depth, scale_mult)
+        g, pose = room_gaussians(fl, meters, home, s, H, W, stride, max_depth, scale_mult,
+                                 carve_doors=carve_doors, fuse_pager=fuse_pager, pager_sub=pager_sub)
         if g is None:
             continue
         gs.append(g); poses.append(pose)
         rgbs.append(_pano_rgb(home, s, (H, W)))
+        if fuse_pager and _load_pager_depth(home, s, H, W, pager_sub) is not None:
+            npg += 1
+    if fuse_pager:
+        print(f"[oracle] PaGeR depth fused for {npg}/{len(stems)} panos (furniture); rest layout-only")
     return (merge(gs) if gs else None), rgbs, poses
 
 
@@ -247,7 +291,8 @@ def main(a):
         inputs, extras = list(panos), []
         print(f"[oracle] FULL floor from all {len(inputs)} panos")
 
-    full, rgbs, poses = build_floor(fl, meters, a.home, inputs, H, W, a.stride, a.max_depth, a.scale_mult)
+    full, rgbs, poses = build_floor(fl, meters, a.home, inputs, H, W, a.stride, a.max_depth, a.scale_mult,
+                                    carve_doors=a.carve_doors, fuse_pager=a.fuse_pager, pager_sub=a.pager_sub)
     if full is None:
         raise SystemExit("no panos could be loaded — check --home / that GT panos exist there")
     from sparsepano.gs import gsplat_init as gi
@@ -256,7 +301,7 @@ def main(a):
 
     # render calibration: proper camera + (hflip,vflip) that matches the real pano (solid room).
     g0, _ = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult,
-                           mask_doors=False, thin_poles=False)
+                           mask_doors=False, thin_poles=False, fuse_pager=False)
     pose0 = _pose_c2w_render(fl.panos[inputs[0]], meters)
     hflip, vflip, cpsnr = calibrate_render(g0, rgbs[0], pose0, a.fov, min(a.size, 256), device)
     print(f"[oracle] render calib: hflip={hflip} vflip={vflip}  match PSNR {cpsnr:.1f} dB"
@@ -355,6 +400,12 @@ if __name__ == "__main__":
     ap.add_argument("--max_rooms", type=int, default=8)
     ap.add_argument("--eval", action="store_true",
                     help="held-out novel-view metrics (1 pano/room in, rest scored). Default: full floor from all panos.")
+    ap.add_argument("--no_fuse", dest="fuse_pager", action="store_false",
+                    help="disable PaGeR fusion (layout-only geometry, walls but no furniture)")
+    ap.add_argument("--pager_sub", default="pager_depth/depth_meters", help="per-home PaGeR depth subdir")
+    ap.add_argument("--carve_doors", action="store_true",
+                    help="also carve DOORS into holes (default: only true openings; keeps closed doors solid)")
+    ap.set_defaults(fuse_pager=True)
     ap.add_argument("--walkthrough", action="store_true")
     ap.add_argument("--walk_steps", type=int, default=8)
     a = ap.parse_args()

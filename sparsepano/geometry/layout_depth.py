@@ -70,7 +70,7 @@ def _az_column_mask(aza_deg, azb_deg, W, pad_deg):
 
 
 def render_layout_depth(fl, pano, H=1024, W=2048, max_depth=15.0, mask_doors=True, pad_deg=4.0,
-                        max_span_deg=110.0):
+                        max_span_deg=110.0, carve_doors=False):
     """Dense equirect depth (metres, range along each ray) from the room layout.
     With mask_doors, the wall band at each door/opening azimuth is left EMPTY (depth 0) so we
     don't paste the neighbour room onto a solid wall — the passage stays a hole (to be filled by
@@ -112,7 +112,11 @@ def render_layout_depth(fl, pano, H=1024, W=2048, max_depth=15.0, mask_doors=Tru
 
     if mask_doors:
         S = fl.meters_per_coord; pos = np.asarray(info["pos"], float)
-        segs = list(info.get("doors_global", [])) + list(info.get("openings_global", []))
+        # openings are always leaf-less passages -> carve. doors may be closed (solid) -> carve
+        # only if asked, else a closed door becomes a spurious see-through hole.
+        segs = list(info.get("openings_global", []))
+        if carve_doors:
+            segs += list(info.get("doors_global", []))
         carve = np.zeros(W, bool)
         for p0, p1 in segs:
             aza = door_dataset.door_azimuth(fl, pano, p0)
