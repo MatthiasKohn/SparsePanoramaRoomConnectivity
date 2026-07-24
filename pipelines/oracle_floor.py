@@ -44,6 +44,20 @@ def load_floor(home, floor):
     return fl, meters, panos
 
 
+def _pose_c2w_fixed(info, S):
+    """Camera-to-world consistent with the pano-IMAGE convention (door_azimuth). ZInD's image
+    azimuth relates to the floor-plan azimuth by  phi = -psi - rot_deg  (a REFLECTION), so the
+    proper-rotation `zind._pose_c2w` places every room MIRRORED (windows/doors on the wrong side,
+    only hidden because the render's vflip compensated). This adds the reflection so the world
+    geometry — and the .ply — is correct: verified |shared-door disagreement| = 0.000 m."""
+    rot = np.radians(info["rot_deg"]); C, Sr = np.cos(rot), np.sin(rot)
+    R = np.array([[-C, 0.0, -Sr], [0.0, 1.0, 0.0], [-Sr, 0.0, C]])   # Ry(-rot) @ diag(-1,1,1)
+    pos = np.asarray(info["pos"], float)
+    T = np.eye(4); T[:3, :3] = R
+    T[:3, 3] = [pos[0] * S, float(info.get("cam_h_m") or 0.0), pos[1] * S]
+    return T
+
+
 def _pano_rgb(home, stem, hw):
     p = Path(home) / "panos" / f"{stem}.jpg"
     im = cv2.imread(str(p))
@@ -80,7 +94,7 @@ def room_gaussians(fl, meters, home, stem, H, W, stride, max_depth, scale_mult, 
     rgb = _pano_rgb(home, stem, (H, W))
     if rgb is None:
         return None, None
-    pose = zind._pose_c2w(fl.panos[stem], meters)
+    pose = _pose_c2w_fixed(fl.panos[stem], meters)
     g = build_room_gaussians(rgb, depth, pose, stride=stride, max_depth=max_depth, scale_mult=scale_mult)
     if thin_poles:
         g = _thin_poles(g, np.random.default_rng(0))
@@ -220,7 +234,7 @@ def main(a):
         # full-floor mode: a forward "real vs render" panel from a few room cameras
         for s in inputs[: a.max_rooms]:
             real = _pano_rgb(a.home, s, (H, W))
-            pose = zind._pose_c2w(fl.panos[s], meters)
+            pose = _pose_c2w_fixed(fl.panos[s], meters)
             prgb, alpha = render_tiles(full, pose, basis, vflip, [0.0], a.fov, a.size, device)[0]
             gt = panoproj.e2p(real, 0, 0, a.fov, (a.size, a.size))
             cv2.imwrite(str(out / f"view_{fl.panos[s]['room']}_{s[-6:]}.png"),
@@ -231,7 +245,7 @@ def main(a):
         for star in extras[: a.max_rooms]:
             room = fl.panos[star]["room"]
             real = _pano_rgb(a.home, star, (H, W))
-            pose = zind._pose_c2w(fl.panos[star], meters)
+            pose = _pose_c2w_fixed(fl.panos[star], meters)
             preds = render_tiles(full, pose, basis, vflip, yaws, a.fov, a.size, device)   # UPRIGHT
             ps, ss_, lps, covs, panels = [], [], [], [], []
             for y, (prgb, alpha) in zip(yaws, preds):
