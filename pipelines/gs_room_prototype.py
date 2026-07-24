@@ -70,9 +70,15 @@ def _load_rgb(path):
 
 
 # ----------------------------------------------------------------- gaussian assembly
-def build_room_gaussians(rgb, depth, pose_c2w, stride=4, max_depth=12.0):
-    """Init per-pano Gaussians (camera frame) then transform to WORLD by GT c2w."""
-    g = gi.gaussian_init_from_pano(depth, rgb, stride=stride, max_depth=max_depth)
+def build_room_gaussians(rgb, depth, pose_c2w, stride=4, max_depth=12.0, scale_mult=None):
+    """Init per-pano Gaussians (camera frame) then transform to WORLD by GT c2w.
+
+    scale_mult: splat size multiplier. The init sizes each splat for stride-1 pixel spacing;
+    when we subsample at `stride`, splats must be ~stride× larger to TOUCH (else the surface
+    renders as a dot-grid with gaps -> false holes). Default auto = 1.5×stride."""
+    if scale_mult is None or scale_mult <= 0:
+        scale_mult = 1.5 * stride
+    g = gi.gaussian_init_from_pano(depth, rgb, stride=stride, max_depth=max_depth, scale_mult=scale_mult)
     R, t = pose_c2w[:3, :3], pose_c2w[:3, 3]
     g["xyz"] = (g["xyz"] @ R.T + t).astype(np.float32)  # cam -> world
     return g
@@ -168,7 +174,7 @@ def mode_single(a):
         rgb = cv2.resize(rgb, (depth.shape[1], depth.shape[0]), interpolation=cv2.INTER_AREA)
     H, W = depth.shape
     eye = np.eye(4)
-    g = build_room_gaussians(rgb, depth, eye, stride=a.stride, max_depth=a.max_depth)
+    g = build_room_gaussians(rgb, depth, eye, stride=a.stride, max_depth=a.max_depth, scale_mult=a.scale_mult)
     # novel camera: step sideways (+x) by `baseline` metres and yaw toward the wall
     novel = _pose_translate(eye, dx=a.baseline, yaw_deg=a.yaw)
     extras = {"rgbs": [rgb], "poses": [eye], "look_target": g["xyz"].mean(0)}
@@ -245,7 +251,7 @@ def mode_zind(a):
         depth = _load_depth_2d(dp)
         if rgb.shape[:2] != depth.shape:
             rgb = cv2.resize(rgb, (depth.shape[1], depth.shape[0]), interpolation=cv2.INTER_AREA)
-        g = build_room_gaussians(rgb, depth, pose, stride=a.stride, max_depth=a.max_depth)
+        g = build_room_gaussians(rgb, depth, pose, stride=a.stride, max_depth=a.max_depth, scale_mult=a.scale_mult)
         gs.append(g); named.append((p.room_id, g)); rgbs.append(rgb); poses.append(pose)
     H, W = depth.shape
     merged = merge(gs)
@@ -413,6 +419,8 @@ if __name__ == "__main__":
     ap.add_argument("--gs_size", type=int, default=512, help="gsplat render size (px, square)")
     # shared
     ap.add_argument("--stride", type=int, default=4, help="pano pixel stride for GS init")
+    ap.add_argument("--scale_mult", type=float, default=0.0,
+                    help="gsplat splat-size multiplier; 0 = auto (1.5*stride) so surfels touch")
     ap.add_argument("--max_depth", type=float, default=12.0)
     ap.add_argument("--render_h", type=int, default=512, help="render pano height (width=2h)")
     ap.add_argument("--grid", type=int, default=8, help="coarse coverage cell size (px)")

@@ -54,6 +54,8 @@ class ZindFloor:
                     doors_local = _door_segments(lr.get("doors", []))
                     doors_global = [(sc * (R @ p0) + tr, sc * (R @ p1) + tr)
                                     for p0, p1 in doors_local]
+                    verts_local = np.array(lr.get("vertices", []), float)  # room polygon (cam-h units)
+                    verts_global = (sc * (verts_local @ R.T) + tr) if len(verts_local) else verts_local
                     self.panos[stem] = {
                         "room": room_key,
                         "pos": tr,                  # camera centre, coord units
@@ -62,6 +64,10 @@ class ZindFloor:
                         "cam_h_m": sc * self.meters_per_coord,  # height in meters
                         "doors_local": doors_local,
                         "doors_global": doors_global,
+                        "verts_local": verts_local,     # room floor polygon, local (cam-h units)
+                        "verts_global": verts_global,   # room floor polygon, global coord units
+                        "camera_height": float(pano.get("camera_height", 1.0)),
+                        "ceiling_height": float(pano.get("ceiling_height", 2.4)),
                         "label": pano.get("label", ""),
                     }
 
