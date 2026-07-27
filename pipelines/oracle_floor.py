@@ -244,6 +244,57 @@ def pose_rmse(gt_c2w, est_c2w):
     return float(np.sqrt(np.mean(np.sum((aligned - G) ** 2, 1))))
 
 
+# --------------------------------------------------------------------- 3DGS optimization
+def optimize_floor(g, fl, meters, home, stems, hflip, vflip, fov, size, iters, lr, device,
+                   yaws=(0, 90, 180, 270)):
+    """Light 3DGS refinement: FREEZE positions (keep GT geometry, no floaters) and Adam-optimize
+    scale / rotation / opacity / colour against the panos' perspective tiles, using the same
+    proper-camera + flip convention as our renderer. Returns the sharpened gaussian dict."""
+    import torch
+    from gsplat import rasterization
+    from sparsepano.gs import gs_optim
+    K = torch.tensor(gs_optim._K(fov, size), device=device).float()[None]
+
+    sup = []                                                      # (viewmat, gt_tile) supervision
+    for s in stems:
+        rgb = _pano_rgb(home, s, (max(size, 512), max(size, 512) * 2))
+        if rgb is None:
+            continue
+        base = _pose_c2w_render(fl.panos[s], meters)
+        for y in yaws:
+            R = base[:3, :3] @ gs_optim._Ry(np.radians(-y))
+            T = np.eye(4, dtype=np.float32); T[:3, :3] = R; T[:3, 3] = base[:3, 3]
+            vm = torch.tensor(np.linalg.inv(T), device=device).float()[None]
+            gt = panoproj.e2p(rgb, y, 0, fov, (size, size)).astype(np.float32) / 255.0
+            sup.append((vm, torch.tensor(gt, device=device)))
+    if not sup:
+        return g
+
+    raw = gs_optim._to_raw(g, device)
+    raw["means"].requires_grad_(False)                            # freeze geometry -> no floaters
+    params = [raw["quats"], raw["log_scales"], raw["logit_opac"], raw["raw_colors"]]
+    opt = torch.optim.Adam(params, lr=lr)
+    rng = np.random.default_rng(0)
+    for it in range(iters):
+        vm, gt = sup[int(rng.integers(len(sup)))]
+        means, quats, scales, opac, colors = gs_optim._activated(raw)
+        out, _, _ = rasterization(means, quats, scales, opac, colors, vm, K,
+                                  width=size, height=size, render_mode="RGB")
+        img = out[0]
+        if hflip:
+            img = torch.flip(img, [1])
+        if vflip:
+            img = torch.flip(img, [0])
+        loss = (img - gt).abs().mean()
+        opt.zero_grad(); loss.backward(); opt.step()
+        if it % max(1, iters // 6) == 0:
+            print(f"  [gs-opt] it {it}/{iters}  L1 {loss.item():.4f}")
+    means, quats, scales, opac, colors = gs_optim._activated(raw)
+    return dict(xyz=means.detach().cpu().numpy(), rot=quats.detach().cpu().numpy(),
+                scale=scales.detach().cpu().numpy(), opacity=opac.detach().cpu().numpy(),
+                rgb=colors.detach().cpu().numpy())
+
+
 # --------------------------------------------------------------------- rendering
 def render_tiles(g, pose_proper, hflip, vflip, yaws, fov, size, device):
     """Perspective tiles from a PROPER camera at pose_proper (yaw sweep), flipped to match the
@@ -360,9 +411,6 @@ def main(a):
     if full is None:
         raise SystemExit("no panos could be loaded — check --home / that GT panos exist there")
     from sparsepano.gs import gsplat_init as gi
-    gi.write_point_ply(str(out / "floor.ply"), full)              # plain colored point cloud
-    gi.write_gs_ply(str(out / "floor_gs.ply"), full)              # real 3DGS (surfels) for a splat viewer
-    print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> {out}/floor.ply (points) + floor_gs.ply (3DGS)")
 
     # render calibration: proper camera + (hflip,vflip) that matches the real pano (solid room).
     g0, _ = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult,
@@ -371,6 +419,19 @@ def main(a):
     hflip, vflip, cpsnr = calibrate_render(g0, rgbs[0], pose0, a.fov, min(a.size, 256), device)
     print(f"[oracle] render calib: hflip={hflip} vflip={vflip}  match PSNR {cpsnr:.1f} dB"
           + ("  !! LOW — inspect renders" if cpsnr < 18 else ""))
+
+    if a.optimize:                                                 # light 3DGS refine (freeze positions)
+        print(f"[oracle] 3DGS optimization: {a.opt_iters} iters (positions frozen, sharpen scale/opacity/colour)")
+        full = optimize_floor(full, fl, meters, a.home, inputs, hflip, vflip, a.fov,
+                              min(a.size, 384), a.opt_iters, a.opt_lr, device)
+
+    gi.write_point_ply(str(out / "floor.ply"), full)              # full colored point cloud
+    gi.write_gs_ply(str(out / "floor_gs.ply"), full)              # real 3DGS (surfels) for a splat viewer
+    if len(full["xyz"]) > a.view_points:                          # lighter cloud for a laptop viewer
+        idx = np.random.default_rng(0).choice(len(full["xyz"]), a.view_points, replace=False)
+        gi.write_point_ply(str(out / "floor_light.ply"), {k: v[idx] for k, v in full.items()})
+    print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> floor.ply (points) + floor_gs.ply (3DGS) "
+          f"+ floor_light.ply ({min(a.view_points, len(full['xyz'])):,} pts)")
 
     rows = []
     if not a.eval:
@@ -416,44 +477,44 @@ def main(a):
             agg = {k: round(float(np.nanmean([r[k] for r in rows])), 3) for k in ("coverage", "psnr", "ssim", "lpips")}
             print(f"\n==== ORACLE held-out — {a.tag} ====\n  rooms scored: {len(rows)}   mean: {agg}")
 
-    # walkthrough LAST + guarded (never lose metrics to a render hiccup)
+    # walkthrough LAST + guarded. Encodes ONE mp4 directly (cv2.VideoWriter, no ffmpeg, no PNG
+    # dump) so you scp a single small file. --save_frames to also keep PNGs.
     if a.walkthrough and len(poses) >= 2:
         try:
             from pipelines.gs_room_prototype import _lookat_c2w, gsplat_render
-            wdir = out / "walkthrough"; wdir.mkdir(exist_ok=True)
             sd = None
             if a.inpaint == "sd":
                 try:
                     sd = load_sd_inpainter(device); print("[oracle] SD inpainter loaded")
                 except Exception as e:
                     print(f"[oracle] SD inpainter unavailable ({e}); falling back to cv2"); a.inpaint = "cv2"
-            path = _smooth_tour([p[:3, 3] for p in poses], steps=a.walk_steps)   # smooth NN tour
+            path = _smooth_tour([p[:3, 3] for p in poses], steps=a.walk_steps)
+            if len(path) > a.walk_frames:                                    # cap total frames
+                path = path[np.linspace(0, len(path) - 1, a.walk_frames).astype(int)]
             wsize = a.walk_size or a.size
+            mp4 = out / "walkthrough.mp4"
+            vw = cv2.VideoWriter(str(mp4), cv2.VideoWriter_fourcc(*"mp4v"), a.walk_fps, (wsize, wsize))
+            wdir = None
+            if a.save_frames:
+                wdir = out / "walkthrough"; wdir.mkdir(exist_ok=True)
             n = 0
             for i, c in enumerate(path):
-                tgt = path[min(i + 6, len(path) - 1)]                            # look ahead along the path
+                tgt = path[min(i + 6, len(path) - 1)]
                 if np.linalg.norm(tgt - c) < 1e-4:
                     continue
                 rgb, alpha = gsplat_render(full, _lookat_c2w(c, tgt), np.eye(3, dtype=np.float32),
                                            a.fov, wsize, device)
                 if vflip:
                     rgb, alpha = rgb[::-1].copy(), alpha[::-1].copy()
-                cv2.imwrite(str(wdir / f"raw_{n:04d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
                 if a.inpaint != "none":
                     rgb = inpaint_holes(rgb, alpha, a.alpha_thr, backend=a.inpaint, sd=sd)
-                cv2.imwrite(str(wdir / f"f{n:04d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)); n += 1
-            print(f"[oracle] wrote {n} walkthrough frames @ {wsize}px (smooth tour, inpaint='{a.inpaint}') -> {wdir}")
-            # encode to mp4 if ffmpeg is available; else leave frames + the manual command
-            import shutil, subprocess
-            mp4 = out / "walkthrough.mp4"
-            if shutil.which("ffmpeg"):
-                subprocess.run(["ffmpeg", "-y", "-framerate", str(a.walk_fps), "-i", str(wdir / "f%04d.png"),
-                                "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                                str(mp4)], check=True, capture_output=True)
-                print(f"[oracle] encoded {mp4}")
-            else:
-                print(f"[oracle] ffmpeg not found; encode with: "
-                      f"ffmpeg -framerate {a.walk_fps} -i {wdir}/f%04d.png -pix_fmt yuv420p {mp4}")
+                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                vw.write(bgr)
+                if wdir is not None:
+                    cv2.imwrite(str(wdir / f"f{n:04d}.png"), bgr)
+                n += 1
+            vw.release()
+            print(f"[oracle] walkthrough -> {mp4}  ({n} frames @ {wsize}px, {a.walk_fps} fps, inpaint='{a.inpaint}')")
         except Exception as e:
             print(f"[oracle] walkthrough skipped ({e})")
 
@@ -483,8 +544,15 @@ if __name__ == "__main__":
     ap.add_argument("--walkthrough", action="store_true")
     ap.add_argument("--inpaint", choices=["none", "cv2", "sd"], default="cv2",
                     help="fill walkthrough holes: none | cv2 (classical, offline) | sd (Stable-Diffusion generative)")
+    ap.add_argument("--optimize", action="store_true",
+                    help="light 3DGS refinement (freeze positions; sharpen scale/opacity/rotation/colour)")
+    ap.add_argument("--opt_iters", type=int, default=2000)
+    ap.add_argument("--opt_lr", type=float, default=0.01)
     ap.add_argument("--walk_steps", type=int, default=18, help="interpolation steps per tour segment (higher = slower/smoother)")
     ap.add_argument("--walk_size", type=int, default=0, help="walkthrough render size (px); 0 = use --size")
-    ap.add_argument("--walk_fps", type=int, default=24, help="mp4 frame rate")
+    ap.add_argument("--walk_fps", type=int, default=20, help="mp4 frame rate")
+    ap.add_argument("--walk_frames", type=int, default=180, help="max walkthrough frames (fewer = shorter/faster to move)")
+    ap.add_argument("--save_frames", action="store_true", help="also keep per-frame PNGs (default: only the mp4)")
+    ap.add_argument("--view_points", type=int, default=2_000_000, help="downsampled floor_light.ply size for laptop viewers")
     a = ap.parse_args()
     main(a)
