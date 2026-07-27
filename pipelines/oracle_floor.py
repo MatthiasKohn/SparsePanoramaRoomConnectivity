@@ -360,8 +360,9 @@ def main(a):
     if full is None:
         raise SystemExit("no panos could be loaded — check --home / that GT panos exist there")
     from sparsepano.gs import gsplat_init as gi
-    gi.write_point_ply(str(out / "floor.ply"), full)
-    print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> {out}/floor.ply")
+    gi.write_point_ply(str(out / "floor.ply"), full)              # plain colored point cloud
+    gi.write_gs_ply(str(out / "floor_gs.ply"), full)              # real 3DGS (surfels) for a splat viewer
+    print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> {out}/floor.ply (points) + floor_gs.ply (3DGS)")
 
     # render calibration: proper camera + (hflip,vflip) that matches the real pano (solid room).
     g0, _ = room_gaussians(fl, meters, a.home, inputs[0], H, W, a.stride, a.max_depth, a.scale_mult,
