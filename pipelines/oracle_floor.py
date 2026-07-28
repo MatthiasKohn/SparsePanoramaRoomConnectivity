@@ -437,12 +437,14 @@ def main(a):
                               a.opt_size, a.opt_iters, a.opt_lr, device)
 
     gi.write_point_ply(str(out / "floor.ply"), full)              # full colored point cloud (Y-up)
-    gi.write_gs_ply(str(out / "floor_gs.ply"), _flip_x180(full))  # 3DGS for splat viewers (Y-down)
-    if len(full["xyz"]) > a.view_points:                          # lighter cloud for a laptop viewer
+    gi.write_gs_ply(str(out / "floor_gs.ply"), _flip_x180(full))  # full 3DGS (Y-down) — big, quality
+    if len(full["xyz"]) > a.view_points:                          # SMALL files to scp + view on a laptop
         idx = np.random.default_rng(0).choice(len(full["xyz"]), a.view_points, replace=False)
-        gi.write_point_ply(str(out / "floor_light.ply"), {k: v[idx] for k, v in full.items()})
-    print(f"[oracle] floor: {len(full['xyz']):,} gaussians -> floor.ply (points) + floor_gs.ply (3DGS) "
-          f"+ floor_light.ply ({min(a.view_points, len(full['xyz'])):,} pts)")
+        light = {k: v[idx] for k, v in full.items()}
+        gi.write_point_ply(str(out / "floor_light.ply"), light)              # point viewer (Y-up)
+        gi.write_gs_ply(str(out / "floor_light_gs.ply"), _flip_x180(light))  # splat viewer (Y-down)
+    print(f"[oracle] floor: {len(full['xyz']):,} gaussians. SCP the *_light* files ({a.view_points:,} pts) "
+          f"+ walkthrough.mp4; the full floor.ply/floor_gs.ply are large.")
 
     rows = []
     if not a.eval:
@@ -492,6 +494,8 @@ def main(a):
     # dump) so you scp a single small file. --save_frames to also keep PNGs.
     if a.walkthrough and len(poses) >= 2:
         try:
+            import shutil
+            shutil.rmtree(out / "walkthrough", ignore_errors=True)   # drop stale PNG frames from old runs
             from pipelines.gs_room_prototype import _lookat_c2w, gsplat_render
             sd = None
             if a.inpaint == "sd":
