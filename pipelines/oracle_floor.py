@@ -140,6 +140,17 @@ def _cull_depth_edges(depth, rel=0.15):
     return d
 
 
+def _flip_x180(g):
+    """Rotate the gaussians 180 deg about X (proper rotation) to match the Y-down convention of
+    3DGS/splat viewers (our world is Y-up, so floor_gs.ply shows upside down otherwise)."""
+    xyz = g["xyz"].copy(); xyz[:, 1] *= -1; xyz[:, 2] *= -1
+    out = {**g, "xyz": xyz}
+    if "rot" in g and g["rot"].shape[1] == 4:                     # quats (w,x,y,z) <- Rx(180)=(0,1,0,0)
+        w, x, y, z = g["rot"].T
+        out["rot"] = np.stack([-x, w, -z, y], 1).astype(np.float32)
+    return out
+
+
 def _thin_poles(g, rng, min_keep=0.12):
     """Equirect over-samples the poles (ceiling/floor) -> concentric point 'rings'. Keep each
     point with prob ~ cos(elevation) so the cloud is roughly uniform on surfaces (walls kept)."""
@@ -421,12 +432,12 @@ def main(a):
           + ("  !! LOW — inspect renders" if cpsnr < 18 else ""))
 
     if a.optimize:                                                 # light 3DGS refine (freeze positions)
-        print(f"[oracle] 3DGS optimization: {a.opt_iters} iters (positions frozen, sharpen scale/opacity/colour)")
+        print(f"[oracle] 3DGS optimization: {a.opt_iters} iters @ {a.opt_size}px (positions frozen)")
         full = optimize_floor(full, fl, meters, a.home, inputs, hflip, vflip, a.fov,
-                              min(a.size, 384), a.opt_iters, a.opt_lr, device)
+                              a.opt_size, a.opt_iters, a.opt_lr, device)
 
-    gi.write_point_ply(str(out / "floor.ply"), full)              # full colored point cloud
-    gi.write_gs_ply(str(out / "floor_gs.ply"), full)              # real 3DGS (surfels) for a splat viewer
+    gi.write_point_ply(str(out / "floor.ply"), full)              # full colored point cloud (Y-up)
+    gi.write_gs_ply(str(out / "floor_gs.ply"), _flip_x180(full))  # 3DGS for splat viewers (Y-down)
     if len(full["xyz"]) > a.view_points:                          # lighter cloud for a laptop viewer
         idx = np.random.default_rng(0).choice(len(full["xyz"]), a.view_points, replace=False)
         gi.write_point_ply(str(out / "floor_light.ply"), {k: v[idx] for k, v in full.items()})
@@ -548,6 +559,7 @@ if __name__ == "__main__":
                     help="light 3DGS refinement (freeze positions; sharpen scale/opacity/rotation/colour)")
     ap.add_argument("--opt_iters", type=int, default=2000)
     ap.add_argument("--opt_lr", type=float, default=0.01)
+    ap.add_argument("--opt_size", type=int, default=512, help="tile resolution for GS optimization (higher = sharper, slower)")
     ap.add_argument("--walk_steps", type=int, default=18, help="interpolation steps per tour segment (higher = slower/smoother)")
     ap.add_argument("--walk_size", type=int, default=0, help="walkthrough render size (px); 0 = use --size")
     ap.add_argument("--walk_fps", type=int, default=20, help="mp4 frame rate")
