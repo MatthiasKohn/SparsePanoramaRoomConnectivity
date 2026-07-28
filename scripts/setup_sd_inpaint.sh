@@ -20,13 +20,13 @@ echo "warming the SDXL-inpainting cache into $HF_HOME ..."
 # point LD_LIBRARY_PATH at only gcc-12 libstdc++ (no cineca CUDA shadow) — same fix as the runs.
 # Model is PUBLIC (no token needed); unset any stale token so it downloads anonymously.
 GCCLIB="$(dirname "$(g++ -print-file-name=libstdc++.so.6 2>/dev/null)")"; [[ "$GCCLIB" == /* ]] || GCCLIB=""
+# download-only (no model loading -> can't be killed mid-load on the login node).
 HF_HUB_OFFLINE=0 env -u PYTHONPATH -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN LD_LIBRARY_PATH="$GCCLIB" \
     HF_HOME="$HF_HOME" "$FMODELS/bin/python" - <<'PY'
-import torch
-from diffusers import AutoPipelineForInpainting
-AutoPipelineForInpainting.from_pretrained(
-    "diffusers/stable-diffusion-xl-1.0-inpainting-0.1", torch_dtype=torch.float16, variant="fp16")
-print("SDXL-inpainting cached OK")
+from huggingface_hub import snapshot_download
+d = snapshot_download("diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+                      allow_patterns=["*.json", "*.txt", "*fp16*", "tokenizer*/**", "**/*.json"])
+print("SDXL-inpainting cached OK ->", d)
 PY
 echo "Done. Run generative completion with:  (EXTRA='--inpaint sd' in run_oracle_floor.slurm)"
 echo "env_leonardo.sh already sets HF_HOME + HF_HUB_OFFLINE=1 so compute nodes load from cache."
