@@ -24,8 +24,8 @@ GCCLIB="$(dirname "$(g++ -print-file-name=libstdc++.so.6 2>/dev/null)")"; [[ "$G
 HF_HUB_OFFLINE=0 env -u PYTHONPATH -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN LD_LIBRARY_PATH="$GCCLIB" \
     HF_HOME="$HF_HOME" "$FMODELS/bin/python" - <<'PY'
 from huggingface_hub import snapshot_download
-d = snapshot_download("diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
-                      allow_patterns=["*.json", "*.txt", "*fp16*", "tokenizer*/**", "**/*.json"])
+# full snapshot (all files) so diffusers' offline resolver never finds a missing part.
+d = snapshot_download("diffusers/stable-diffusion-xl-1.0-inpainting-0.1")
 print("SDXL-inpainting cached OK ->", d)
 PY
 echo "Done. Run generative completion with:  (EXTRA='--inpaint sd' in run_oracle_floor.slurm)"

@@ -362,13 +362,17 @@ SD_INPAINT_MODEL = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"   # public
 
 def load_sd_inpainter(device):
     """SDXL inpainting pipeline (the generative backend). Weights must be cached on a login node
-    first (compute nodes are offline) — see scripts/setup_sd_inpaint.sh."""
+    first (compute nodes are offline) — see scripts/setup_sd_inpaint.sh. local_files_only=True
+    forces the offline resolver straight to the cache (no network metadata call that would fail)."""
     import torch
     from diffusers import AutoPipelineForInpainting
-    pipe = AutoPipelineForInpainting.from_pretrained(
-        SD_INPAINT_MODEL,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-        variant="fp16")
+    dt = torch.float16 if device == "cuda" else torch.float32
+    try:
+        pipe = AutoPipelineForInpainting.from_pretrained(SD_INPAINT_MODEL, torch_dtype=dt,
+                                                         variant="fp16", local_files_only=True)
+    except Exception:                                             # fp16 variant not fully cached -> default
+        pipe = AutoPipelineForInpainting.from_pretrained(SD_INPAINT_MODEL, torch_dtype=dt,
+                                                         local_files_only=True)
     pipe = pipe.to(device); pipe.set_progress_bar_config(disable=True)
     return pipe
 
