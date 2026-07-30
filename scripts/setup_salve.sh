@@ -81,12 +81,9 @@ fi
 if [ -s "$CKPT_DIR/ep60.pth" ]; then
   echo "HoHoNet ckpt OK ($(stat -c%s "$CKPT_DIR/ep60.pth") bytes)"
 else
-  echo "HoHoNet depth ckpt still missing. Download this ONE file in a browser and scp it to:"
-  echo "  $CKPT_DIR/ep60.pth"
-  echo "It is 'mp3d_depth_HOHO_depth_dct_efficienthc_TransEn1_hardnet/ep60.pth' in the HoHoNet zoo:"
-  echo "  Dropbox: https://www.dropbox.com/sh/b014nop5jrehpoq/AACWNTMMHEAbaKOO1drqGio4a?dl=0"
-  echo "  Gdrive : https://drive.google.com/drive/folders/1raT3vRXnQXRAQuYq36dE-93xFc_hgkTQ"
-  exit 1
+  echo "NOTE: HoHoNet depth ckpt not available (both official mirrors are dead). This is only needed"
+  echo "  for SALVe's RGB-texture modality. We use the LAYOUT-only verifier, which needs no depth,"
+  echo "  so this is fine -- continuing."
 fi
 
 echo "=================================================================="
@@ -96,6 +93,8 @@ echo "=================================================================="
 wget -nc -O "$SALVE_ASSETS/models/mhnet_ceiling_floor_587.pth"  "$S3/models/9fcbb628bd5efffbdcc4ce55a9eb380d.pth"
 # clean front-end (GT W/D/O + GT layout): ResNet-152 ceiling+floor RGB, 817 tours
 wget -nc -O "$SALVE_ASSETS/models/gtwdo_ceiling_floor_817.pth" "$S3/models/b1198bad27aecb8a19f884abc920a731.pth"
+# LAYOUT-only verifier (MHNet rasterized layout, floor, 877 tours) -> needs NO depth (HoHoNet-free path)
+wget -nc -O "$SALVE_ASSETS/models/mhnet_layout_floor_877.pth" "$S3/models/6ac3f3e5fe6fa3d4bfae7c124d7787b3.pth"
 # MHNet predicted W/D/O + layout on all of ZInD (so we don't need the unreleased layout net)
 if [ ! -e "$SALVE_ASSETS/mhnet_preds/.done" ]; then
   wget -nc -O "$SALVE_ASSETS/ZInD_HorizonNet_predictions.tar.gz" "$S3/data/ZInD_HorizonNet_predictions.tar.gz"

@@ -1,45 +1,43 @@
 # SALVe integration — real estimated poses on ZInD
 
-*Goal: replace GT poses with a real, published method (SALVe, ECCV 2022) to get an honest
-(pose_rmse, rot_err, door_gap, reconstruction) point instead of synthetic noise. CoVisPose and
-Graph-CoVis were the first choice but have NO public code/weights, so SALVe is the faithful option.*
+*Goal: replace GT poses with a real, published method (SALVe, ECCV 2022) for an honest
+(pose_rmse, rot_err, door_gap, reconstruction) point vs the oracle. CoVisPose/Graph-CoVis were the
+first choice but have NO public code/weights, so SALVe is the faithful option.*
 
-## Why SALVe (and why faithful, not hand-rolled)
-SALVe's front-end generates relative-pose hypotheses by snapping W/D/O midpoints between panos, a
-learned CNN **verifier** scores each hypothesis, and a GTSAM **pose graph** assembles global poses.
-The verifier is the whole contribution — skipping it (naive door-snapping) is NOT SALVe. We use the
-released verifier weights + released MHNet predictions + HoHoNet depth, so we **train nothing**.
+## Method (why faithful, not hand-rolled)
+SALVe: relative-pose hypotheses from W/D/O snapping -> a learned CNN **verifier** scores each -> GTSAM
+**pose graph** gives global poses. The verifier is the contribution; we use SALVe's released verifier
+weights + released MHNet W/D/O predictions, so we **train nothing**.
 
-## Faithfulness caveats (state these honestly)
-- **MHNet layout weights are not released**; we use their published MHNet *predictions* on ZInD.
-- SALVe `run_sfm.py` never serializes poses (`PoseGraph2d.as_json` raises). Our
-  `salve_integration/export_salve_poses.py` reproduces its exact reconstruction path and exports.
-- Estimated poses are aligned to GT by Sim(3) before export (standard — pose is only defined up to a
-  global similarity). Both our metrics are GT-relative, so this is correct.
+## Two decisions forced by reality
+1. **Layout-only verifier (no depth).** SALVe's RGB modality needs HoHoNet depth, whose weights are
+   gone from both official mirrors (Dropbox deleted, Drive 404). SALVe also released a rasterized-
+   **layout** verifier (`6ac3f3e5...`, `modalities:["layout"]`) that needs no depth -> HoHoNet drops
+   out entirely. Weaker modality than ceiling+floor RGB, but a legitimate released SALVe config.
+2. **Must evaluate on a TEST-split building.** The verifier was trained on train+val. `0000` is in
+   TRAIN -> leaky. Use a test-split building (0021, 0203, 0990, 0809, ...) AND run the oracle on the
+   same one for a fair head-to-head. (Our oracle/noise/drift on 0000 remain valid — we train nothing.)
 
 ## Files
-- `scripts/setup_salve.sh` — one-time login-node: clone salve+HoHoNet, conda env (GTSAM/GTSFM/Open3D),
-  download verifier ckpts + MHNet preds + HoHoNet ckpt + vanishing angles.
-- `scripts/run_salve.slurm` — 5 stages: hypotheses → HoHoNet depth → BEV render → verifier → export.
-- `salve_integration/export_salve_poses.py` — SALVe back-end → `{stem:{rot_deg,pos}}` (`_est.json`) +
-  a GT round-trip (`_gt.json`).
+- `scripts/setup_salve.sh` — one-time: conda env (python+pip, then pip incl. gtsam/gtsfm/torch cu113),
+  SALVe verifier ckpts (rgb 9fcbb628 / gtwdo b1198bad / **layout 6ac3f3e5**), MHNet predictions,
+  vanishing angles. HoHoNet is attempted but non-fatal (not needed for the layout path).
+- `scripts/run_salve.slurm` — one building: hypotheses -> layout BEV (no depth) -> verifier -> export.
+- `salve_integration/gen_hypotheses_one_building.py` — hypotheses for ONE building (CLI only does splits).
+- `salve_integration/export_salve_poses.py` — SALVe back-end -> `{stem:{rot_deg,pos}}` (`_est.json`)
+  + a GT round-trip (`_gt.json`) that is the convention unit-test.
 
 ## Workflow
-1. `bash scripts/setup_salve.sh` (login node; the conda env is the main risk — GTSAM/GTSFM).
-   Then set `CONFIG_NAME` in `run_salve.slurm` from `ls $SALVE_ROOT/salve/configs/` (must match the ckpt).
-2. `sbatch scripts/run_salve.slurm` → `salve_poses/0000_floor_01_{est,gt}.json`.
-3. **Convention unit-test** (must pass first):
-   `python -m pipelines.floor --home $ZIND_ROOT/0000 --floor floor_01 --pose_model salve \
-        --pose_file .../0000_floor_01_gt.json --depth_model gt_layout` → **pose RMSE ~0**.
-4. Real number: same command with `_est.json`. One row lands in `results.csv` with pose_rmse,
-   rot_err_deg, door_gap_m, PSNR/SSIM/LPIPS — directly comparable to the oracle and the noise sweep.
+1. `bash scripts/setup_salve.sh` (login node). Env is done; this now also grabs the layout ckpt.
+2. Set `BUILDING` (test split) + `FLOOR` in `run_salve.slurm`, then `sbatch scripts/run_salve.slurm`
+   -> `salve_poses/<B>_<F>_{est,gt}.json`.
+3. **Convention unit-test first**: `floor.py --pose_model salve --pose_file .../<B>_<F>_gt.json` -> pose RMSE ~0.
+4. Real number: swap to `_est.json`. Run oracle on the SAME building. Both land in `results.csv`
+   (pose_rmse, rot_err_deg, door_gap_m, PSNR/SSIM/LPIPS) -> directly comparable.
 
-## Two front-ends (one ablation)
-- `WDO_SOURCE=horizon_net` + MHNet verifier ckpt = the realistic end-to-end number.
-- `WDO_SOURCE=gt` + GT-W/D/O verifier ckpt = isolates assembly/pose-graph error from detection error.
-
-## Known first-run risk points
-- conda solve (GTSAM/GTSFM) — see fallback in setup_salve.sh.
-- target building must be in the processed `SPLIT` (default `test`); use `--building_id` where supported.
-- exact per-stage flags / MHNet-prediction dir layout may need a one-line path tweak on first run.
-- unlocalized panos are dropped (no GT fallback) — the run logs how many; large drop = caveat.
+## First-run risk points (I cannot test these without the cluster)
+- `test.py` dataloader reads `layout_data_root` (sed'd to our renders) over `--split`; only the one
+  rendered building is present, so only it is scored. If it errors on missing buildings, we scope the
+  dataloader or render a few test buildings.
+- exact MHNet-prediction dir layout expected by `hnet_prediction_loader` may need a path tweak.
+- unlocalized panos are dropped (no GT fallback); the run logs how many.
