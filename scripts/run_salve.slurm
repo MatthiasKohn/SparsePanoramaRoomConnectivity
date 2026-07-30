@@ -40,7 +40,10 @@ mkdir -p logs "$OUT"
 source "$CONDA_ROOT/etc/profile.d/conda.sh"; conda activate "$CONDA_ROOT/envs/salve-v1"
 export SALVE_REPO_DIRPATH="$SALVE_ROOT"
 HYP=$OUT/hypotheses; LAYOUT=$OUT/layout_bev; PREDS=$OUT/serialized_preds; DUMMY_DEPTH=$OUT/_nodepth
-MHNET=$SALVE_ASSETS/mhnet_preds
+# MHNet predictions root = parent of the horizon_net/ dir (tar may nest it); vanishing_angle/ lives here too
+MHNET=$(dirname "$(find "$SALVE_ASSETS/mhnet_preds" -maxdepth 4 -type d -name horizon_net 2>/dev/null | head -1)")
+[ -d "$MHNET/horizon_net" ] || { echo "ERROR: horizon_net/ not found under $SALVE_ASSETS/mhnet_preds -- re-run setup_salve.sh"; exit 1; }
+echo "MHNet predictions root: $MHNET"
 mkdir -p "$DUMMY_DEPTH"
 
 echo "### 1/4 W/D/O alignment hypotheses (building $BUILDING) ###"

@@ -103,11 +103,22 @@ if [ ! -e "$SALVE_ASSETS/mhnet_preds/.done" ]; then
 fi
 
 echo "=================================================================="
-echo " 5/5  vanishing-angle files (shipped in the repo, just split them)"
+echo " 5/5  vanishing-angle files -> must live INSIDE the predictions root (next to horizon_net/)"
 echo "=================================================================="
+# SALVe's loader globs {predictions_root}/horizon_net/{building}/*.json and reads
+# {predictions_root}/vanishing_angle/{building}.json. The tar may nest horizon_net/ one level deep,
+# so auto-detect the real predictions root = parent of the horizon_net/ dir.
+HN=$(find "$SALVE_ASSETS/mhnet_preds" -maxdepth 4 -type d -name horizon_net 2>/dev/null | head -1)
+if [ -z "$HN" ]; then
+  echo "ERROR: 'horizon_net/' not found under $SALVE_ASSETS/mhnet_preds -- tar layout unexpected:"
+  find "$SALVE_ASSETS/mhnet_preds" -maxdepth 2 | head -20; exit 1
+fi
+PRED_ROOT=$(dirname "$HN")
+echo "MHNet predictions root (has horizon_net/): $PRED_ROOT"
 python "$SALVE_ROOT/scripts/split_vanishing_angle_file.py" \
     --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" \
-    --out "$SALVE_ASSETS/vanishing_angle"
+    --out "$PRED_ROOT/vanishing_angle"
+echo "MHNET_PRED_ROOT=$PRED_ROOT   <-- use this as --mhnet_predictions_data_root (run_salve.slurm auto-detects it)"
 
 echo
 echo "=== available verifier YAML configs (pick the one matching the ckpt for run_salve.slurm) ==="
