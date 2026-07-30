@@ -64,23 +64,30 @@ echo "=================================================================="
 echo " 3/5  HoHoNet monodepth checkpoint  (SALVe's gdrive ID is dead -> fetch from HoHoNet's zoo)"
 echo "=================================================================="
 CKPT_DIR="$HOHO_ROOT/ckpt/mp3d_depth_HOHO_depth_dct_efficienthc_TransEn1_hardnet"
+# nuke stale 0-byte placeholders from earlier dead-link runs (they shadow the real download)
+find "$HOHO_ROOT/ckpt" -name ep60.pth -size 0 -delete 2>/dev/null || true
 if [ ! -s "$CKPT_DIR/ep60.pth" ]; then
   mkdir -p "$HOHO_ROOT/ckpt"
-  # (a) Dropbox folder zip (dl=1) -- no Google-Drive quota limits
-  wget -O /tmp/hoho_ckpt.zip "https://www.dropbox.com/sh/b014nop5jrehpoq/AACWNTMMHEAbaKOO1drqGio4a?dl=1" || true
-  [ -s /tmp/hoho_ckpt.zip ] && unzip -o /tmp/hoho_ckpt.zip -d "$HOHO_ROOT/ckpt" || true
-  # (b) fallback: gdown the Google-Drive folder
-  if [ ! -s "$CKPT_DIR/ep60.pth" ]; then
-    pip install --no-input gdown
-    gdown --folder "https://drive.google.com/drive/folders/1raT3vRXnQXRAQuYq36dE-93xFc_hgkTQ" -O "$HOHO_ROOT/ckpt" || true
-  fi
-  # normalize: move the depth ckpt to where SALVe expects it, wherever it unzipped to
-  found=$(find "$HOHO_ROOT/ckpt" -name ep60.pth -path '*mp3d_depth*' 2>/dev/null | head -1)
-  if [ -n "$found" ] && [ "$found" != "$CKPT_DIR/ep60.pth" ]; then mkdir -p "$CKPT_DIR"; cp "$found" "$CKPT_DIR/ep60.pth"; fi
+  echo "  downloading HoHoNet ckpt folder from Dropbox (all variants, ~hundreds of MB)..."
+  wget -L --content-disposition -O /tmp/hoho_ckpt.zip \
+      "https://www.dropbox.com/sh/b014nop5jrehpoq/AACWNTMMHEAbaKOO1drqGio4a?dl=1" || true
+  zsz=$(stat -c%s /tmp/hoho_ckpt.zip 2>/dev/null || echo 0)
+  echo "  downloaded zip: $zsz bytes"
+  [ "$zsz" -gt 52428800 ] && unzip -o /tmp/hoho_ckpt.zip -d "$HOHO_ROOT/ckpt" >/dev/null || true
+  # find the REAL (non-empty) depth ckpt wherever it unzipped, and place it where SALVe expects
+  real=$(find "$HOHO_ROOT/ckpt" -name ep60.pth -path '*mp3d_depth*' -size +1M 2>/dev/null | head -1)
+  [ -n "$real" ] && [ "$real" != "$CKPT_DIR/ep60.pth" ] && { mkdir -p "$CKPT_DIR"; cp "$real" "$CKPT_DIR/ep60.pth"; } || true
 fi
-ls -lh "$CKPT_DIR/ep60.pth" && echo "HoHoNet ckpt OK" \
-  || { echo "HoHoNet depth ckpt missing -- grab the 'mp3d_depth_...' ep60.pth manually from"; \
-       echo "  https://www.dropbox.com/sh/b014nop5jrehpoq/AACWNTMMHEAbaKOO1drqGio4a?dl=0"; exit 1; }
+if [ -s "$CKPT_DIR/ep60.pth" ]; then
+  echo "HoHoNet ckpt OK ($(stat -c%s "$CKPT_DIR/ep60.pth") bytes)"
+else
+  echo "HoHoNet depth ckpt still missing. Download this ONE file in a browser and scp it to:"
+  echo "  $CKPT_DIR/ep60.pth"
+  echo "It is 'mp3d_depth_HOHO_depth_dct_efficienthc_TransEn1_hardnet/ep60.pth' in the HoHoNet zoo:"
+  echo "  Dropbox: https://www.dropbox.com/sh/b014nop5jrehpoq/AACWNTMMHEAbaKOO1drqGio4a?dl=0"
+  echo "  Gdrive : https://drive.google.com/drive/folders/1raT3vRXnQXRAQuYq36dE-93xFc_hgkTQ"
+  exit 1
+fi
 
 echo "=================================================================="
 echo " 4/5  SALVe verifier checkpoints (released) + MHNet predictions"

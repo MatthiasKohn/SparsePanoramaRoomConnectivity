@@ -31,7 +31,8 @@ BUILDING=0000                               # building/floor to EXPORT poses for
 FLOOR=floor_01
 WDO_SOURCE=horizon_net                       # horizon_net (realistic MHNet) | gt (GT W/D/O)
 VERIFIER_CKPT=$SALVE_ASSETS/models/mhnet_ceiling_floor_587.pth   # match to WDO_SOURCE
-CONFIG_NAME=                                  # <- fill from `ls $SALVE_ROOT/salve/configs/` (matches ckpt arch)
+# config must match the ckpt: 9fcbb628=mhnet_587 (horizon_net) ; b1198bad=gtwdo_817 (gt). Drop .yaml if test.py rejects it.
+CONFIG_NAME=9fcbb628bd5efffbdcc4ce55a9eb380d.yaml
 CONF=0.93
 # =============================================================================
 
