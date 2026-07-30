@@ -40,6 +40,7 @@ fi
 conda activate salve-v1
 pip install -e "$SALVE_ROOT"
 
+
 echo "=================================================================="
 echo " 3/5  HoHoNet monodepth checkpoint"
 echo "=================================================================="
