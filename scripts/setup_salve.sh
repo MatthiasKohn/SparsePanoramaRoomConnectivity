@@ -40,10 +40,13 @@ MM="$CONDA_ROOT/bin/micromamba"
 if [ ! -x "$MM" ]; then
   wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C "$CONDA_ROOT" bin/micromamba
 fi
-conda config --set channel_priority strict || true
+# Flexible (not strict) channel priority: SALVe's 2022 env file needs opencv builds that strict
+# priority hides across channels (see libmamba's own hint). micromamba stays low-memory either way.
+conda config --set channel_priority flexible || true
 if [ ! -d "$CONDA_ROOT/envs/salve-v1" ]; then
   # their pinned Linux env (brings GTSAM, GTSFM, Open3D, hydra, rdp, pytorch)
-  "$MM" create -y -p "$CONDA_ROOT/envs/salve-v1" -f "$SALVE_ROOT/environment_ubuntu-latest.yml"
+  "$MM" create -y --channel-priority flexible -p "$CONDA_ROOT/envs/salve-v1" \
+      -f "$SALVE_ROOT/environment_ubuntu-latest.yml"
 fi
 conda activate "$CONDA_ROOT/envs/salve-v1"
 pip install -e "$SALVE_ROOT"
