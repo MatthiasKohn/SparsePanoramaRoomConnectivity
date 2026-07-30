@@ -76,7 +76,7 @@ if [ ! -s "$CKPT_DIR/ep60.pth" ]; then
   fi
   # normalize: move the depth ckpt to where SALVe expects it, wherever it unzipped to
   found=$(find "$HOHO_ROOT/ckpt" -name ep60.pth -path '*mp3d_depth*' 2>/dev/null | head -1)
-  if [ -n "$found" ] && [ ! -s "$CKPT_DIR/ep60.pth" ]; then mkdir -p "$CKPT_DIR"; cp "$found" "$CKPT_DIR/ep60.pth"; fi
+  if [ -n "$found" ] && [ "$found" != "$CKPT_DIR/ep60.pth" ]; then mkdir -p "$CKPT_DIR"; cp "$found" "$CKPT_DIR/ep60.pth"; fi
 fi
 ls -lh "$CKPT_DIR/ep60.pth" && echo "HoHoNet ckpt OK" \
   || { echo "HoHoNet depth ckpt missing -- grab the 'mp3d_depth_...' ep60.pth manually from"; \
