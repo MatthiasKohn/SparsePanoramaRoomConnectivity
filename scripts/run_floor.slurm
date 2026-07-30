@@ -19,10 +19,10 @@
 HOMES=(0000)
 FLOORS=(floor_01)
 POSE_MODEL=gt                          # gt | noise | salve | badgr | covispose
-DEPTH_MODEL=fused                      # gt_layout | fused | pager | dap
+DEPTH_MODEL=gt_layout                      # gt_layout | fused | pager | dap
 COMPLETION=cv2                         # none | cv2 | sd
 NOISE="--noise_deg 0 --noise_m 0"      # only used when POSE_MODEL=noise
-EXTRA="--visuals --optimize"           # add/remove: --visuals (ply+walkthrough), --optimize (sharpen)
+EXTRA="" #--visuals --optimize"           # add/remove: --visuals (ply+walkthrough), --optimize (sharpen)
 FMODELS="/leonardo_work/EUHPC_D35_121/envs/fmodels"
 # =============================================================================
 
