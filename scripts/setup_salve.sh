@@ -40,16 +40,24 @@ MM="$CONDA_ROOT/bin/micromamba"
 if [ ! -x "$MM" ]; then
   wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C "$CONDA_ROOT" bin/micromamba
 fi
-# Flexible (not strict) channel priority: SALVe's 2022 env file needs opencv builds that strict
-# priority hides across channels (see libmamba's own hint). micromamba stays low-memory either way.
-conda config --set channel_priority flexible || true
-if [ ! -d "$CONDA_ROOT/envs/salve-v1" ]; then
-  # their pinned Linux env (brings GTSAM, GTSFM, Open3D, hydra, rdp, pytorch)
-  "$MM" create -y --channel-priority flexible -p "$CONDA_ROOT/envs/salve-v1" \
-      -f "$SALVE_ROOT/environment_ubuntu-latest.yml"
+# CURATED env. The full 2022 yml is unsolvable within the login-node memory cap (strict priority
+# OOM-safe but hits an opencv conflict; flexible resolves it but OOM-Killed). SALVe's compiled deps
+# (gtsam, gtsfm) are pip packages -> use a TRIVIAL conda env (python+pip: instant, tiny memory) and
+# install everything with pip (opencv via pip too, avoiding the strict-priority opencv conflict).
+if [ ! -x "$CONDA_ROOT/envs/salve-v1/bin/python" ]; then
+  rm -rf "$CONDA_ROOT/envs/salve-v1"
+  "$MM" create -y -c conda-forge -p "$CONDA_ROOT/envs/salve-v1" python=3.8 pip
 fi
 conda activate "$CONDA_ROOT/envs/salve-v1"
-pip install -e "$SALVE_ROOT"
+# era-appropriate torch for cudatoolkit 11.3 (A100/sm_80 supported); wheel bundles its CUDA runtime
+pip install --no-input torch==1.12.1+cu113 torchvision==0.13.1+cu113 \
+    --extra-index-url https://download.pytorch.org/whl/cu113
+# SALVe + HoHoNet deps (versions matched to their env file where they matter)
+pip install --no-input \
+    gtsam==4.2a7 gtsfm==0.2.0 "hydra-core==1.1.0" rdp yacs open3d "networkx>=2.6.3" \
+    opencv-python "matplotlib>=3.4.2" numpy pandas "pillow>=8.0.1" scikit-learn seaborn \
+    shapely tqdm click h5py imageio scipy simplejson colour pytest-cov
+pip install --no-input -e "$SALVE_ROOT"
 
 
 echo "=================================================================="
@@ -87,6 +95,6 @@ echo
 echo "DONE. Paths for run_salve.slurm:"
 echo "  SALVE_ROOT=$SALVE_ROOT   HOHO_ROOT=$HOHO_ROOT   SALVE_ASSETS=$SALVE_ASSETS   CONDA_ROOT=$CONDA_ROOT"
 echo
-echo "If the conda solve failed: the two brittle deps are GTSAM and GTSFM. Fallback is a manual env:"
-echo "  conda create -n salve-v1 python=3.8 && conda activate salve-v1 && pip install -e $SALVE_ROOT \\"
-echo "    && pip install gtsam gtsfm hydra-core rdp open3d && (retry, pin versions from the .yml as needed)"
+echo "If a pip dep conflicts (e.g. gtsfm==0.2.0 vs numpy): relax that one pin and re-run; the conda"
+echo "env itself is trivial (python+pip) so it won't OOM. Verify import: "
+echo "  $CONDA_ROOT/envs/salve-v1/bin/python -c 'import salve, gtsam, gtsfm, cv2, open3d, torch; print(torch.cuda.is_available())'"
