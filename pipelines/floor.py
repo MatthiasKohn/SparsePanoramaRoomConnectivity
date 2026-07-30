@@ -128,6 +128,67 @@ def pose_errors(gt, est, stems):
     return float(np.sqrt(np.mean(np.sum((sc * (Ec @ R) + G.mean(0) - G) ** 2, 1)))), rot
 
 
+def door_consistency(fl, rooms_map, adj, build_poses, gt_poses, meters):
+    """Cross-room / global-consistency metric (needs no rendering).
+
+    A shared doorway is ONE physical world point. Each adjacent room places it via its own
+    (estimated) pose; under GT the two placements coincide (~0 m), under pose error they diverge.
+    For a room, its rigid placement error is the delta between its build pano's estimated and GT
+    pose: D = P_est @ inv(P_gt). We carry the GT door midpoint by each room's D and measure how far
+    apart the two rooms now think the door is. Reflection convention cancels in the delta.
+
+    Returns door_gap_m (mean), door_gap_max_m, n_doors. This is sensitive to pose error exactly
+    where the within-room PSNR curve is flat -> it isolates whether the assembled floor stays
+    globally consistent (rooms actually meet at their shared doors)."""
+    build_pano = {r: ss[0] for r, ss in rooms_map.items()}
+    gaps, seen = [], set()
+    for r, neigh in adj.items():
+        for s in neigh:
+            key = tuple(sorted((r, s)))
+            if key in seen or r not in build_pano or s not in build_pano:
+                continue
+            seen.add(key)
+            # door LOCATION from whichever pano-pair actually shares it (geometry only)...
+            mid = None
+            for a in rooms_map[r]:
+                for b in rooms_map[s]:
+                    mid = fl.shared_door(a, b, tol=0.25)
+                    if mid is not None:
+                        break
+                if mid is not None:
+                    break
+            if mid is None:
+                continue
+            # ...MOTION from each room's build pano (the pano whose pose places that room's cloud).
+            p = np.array([mid[0] * meters, 0.0, mid[1] * meters, 1.0])
+            dR = build_poses[build_pano[r]] @ np.linalg.inv(gt_poses[build_pano[r]])
+            dS = build_poses[build_pano[s]] @ np.linalg.inv(gt_poses[build_pano[s]])
+            mR, mS = dR @ p, dS @ p
+            gaps.append(float(np.linalg.norm((mR - mS)[[0, 2]])))
+    if not gaps:
+        return dict(door_gap_m=float("nan"), door_gap_max_m=float("nan"), n_doors=0)
+    return dict(door_gap_m=round(float(np.mean(gaps)), 3),
+                door_gap_max_m=round(float(max(gaps)), 3), n_doors=len(gaps))
+
+
+def append_results(master, row):
+    """Schema-robust append: union the columns of the existing file with this row and rewrite, so
+    adding a new metric column never misaligns older rows."""
+    rows, fields = [], list(row.keys())
+    if master.exists():
+        with open(master, newline="") as f:
+            rows = list(csv.DictReader(f))
+        seen = set()
+        fields = [c for c in (list(rows[0].keys()) if rows else []) + list(row.keys())
+                  if not (c in seen or seen.add(c))]
+    rows.append(row)
+    with open(master, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        for rr in rows:
+            w.writerow(rr)
+
+
 # ----------------------------------------------------------------- build + render
 def build_floor(fl, meters, home, rooms_map, build_poses, H, W, a):
     """Per pano: depth (provider) -> gaussians at the (est) build pose, tagged with a room index."""
@@ -233,7 +294,11 @@ def main(a):
 
     build_poses, render_poses, gt_poses = PRO_POSE.get_poses(
         fl, meters, a.pose_model, a.noise_deg, a.noise_m, a.seed, a.pose_file)
+    # a pose provider may localize only a subset (e.g. SALVe) -> keep only panos it placed
+    panos = [p for p in panos if p in build_poses]
     rooms_map, adj = PRO_CONN.get_rooms(fl, panos, a.connectivity)
+    rooms_map = {r: [s for s in ss if s in build_poses] for r, ss in rooms_map.items()}
+    rooms_map = {r: ss for r, ss in rooms_map.items() if ss}
     p_rmse, p_rot = pose_errors(gt_poses, build_poses, panos)
     print(f"[floor] pose error vs GT: RMSE {p_rmse:.3f} m | rot {p_rot:.1f} deg")
 
@@ -268,18 +333,17 @@ def main(a):
                    lpips=round(float(np.nanmean(lps)), 3) if any(np.isfinite(lps)) else float("nan"))
     print(f"[floor] held-out metrics: {metrics}  (rooms={len(rooms_map)} eval_views={min(len(extras), a.max_eval)})")
 
+    # ---------- cross-room / global-consistency metric (door agreement under the est poses) ----------
+    door = door_consistency(fl, rooms_map, adj, build_poses, gt_poses, meters)
+    print(f"[floor] door consistency: gap {door['door_gap_m']} m (max {door['door_gap_max_m']}) over {door['n_doors']} shared doors")
+
     # ---------- append one row to the master results.csv ----------
     row = dict(home=home_id, floor=a.floor, pose_model=a.pose_model, depth_model=a.depth_model,
                connectivity=a.connectivity, completion=a.completion,
                noise_deg=a.noise_deg, noise_m=a.noise_m, pose_rmse_m=round(p_rmse, 3), rot_err_deg=round(p_rot, 2),
-               n_rooms=len(rooms_map), n_eval=min(len(extras), a.max_eval), **metrics)
+               n_rooms=len(rooms_map), n_eval=min(len(extras), a.max_eval), **metrics, **door)
     master = config.RESULTS_ROOT / "floor" / "results.csv"
-    write_header = not master.exists()
-    with open(master, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(row.keys()))
-        if write_header:
-            w.writeheader()
-        w.writerow(row)
+    append_results(master, row)
     with open(out / "metrics.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(row.keys())); w.writeheader(); w.writerow(row)
     print(f"[floor] appended row -> {master}")
@@ -340,7 +404,7 @@ if __name__ == "__main__":
     ap.add_argument("--home", required=True); ap.add_argument("--floor", default="floor_01")
     ap.add_argument("--tag", default="")
     # --- swappable blocks ---
-    ap.add_argument("--pose_model", default="gt", choices=["gt", "noise", "salve", "badgr", "covispose"])
+    ap.add_argument("--pose_model", default="gt", choices=["gt", "noise", "drift", "salve", "badgr", "covispose"])
     ap.add_argument("--noise_deg", type=float, default=0.0); ap.add_argument("--noise_m", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=0); ap.add_argument("--pose_file", default="")
     ap.add_argument("--depth_model", default="fused", choices=["gt_layout", "fused", "pager", "dap"])

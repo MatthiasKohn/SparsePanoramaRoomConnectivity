@@ -56,15 +56,56 @@ def get_poses(fl, meters, model="gt", noise_deg=0.0, noise_m=0.0, seed=0, pose_f
             infos[s]["rot_deg"] += noise_deg * rng.standard_normal()
             ang = rng.uniform(0, 2 * np.pi)
             infos[s]["pos"] = infos[s]["pos"] + (noise_m / meters) * np.array([np.cos(ang), np.sin(ang)])
+    elif model == "drift":
+        # COHERENT drift: rooms don't err independently -- error accumulates along the connectivity
+        # graph like a relative-pose estimator chaining room-to-room (SALVe/CovisPose). All panos in
+        # a room share that room's accumulated error; adjacent rooms differ by ONE increment, so
+        # neighbours stay locally consistent while distant rooms drift apart. Here noise_deg/noise_m
+        # are the PER-EDGE increment std (not the absolute error); the absolute RMSE emerges.
+        rng = np.random.default_rng(seed)
+        rooms = {}
+        for s in infos:
+            rooms.setdefault(fl.panos[s]["room"], []).append(s)
+        rids = list(rooms)
+        adjacency = {r: set() for r in rids}
+        for i, ra in enumerate(rids):
+            for rb in rids[i + 1:]:
+                if any(fl.shared_door(a, b, tol=0.25) is not None for a in rooms[ra] for b in rooms[rb]):
+                    adjacency[ra].add(rb); adjacency[rb].add(ra)
+        from collections import deque
+        err = {rids[0]: (0.0, np.zeros(2))}          # root room: zero error
+        dq = deque([rids[0]])
+        while dq:
+            u = dq.popleft()
+            for v in adjacency[u]:
+                if v not in err:
+                    pr, pp = err[u]
+                    err[v] = (pr + noise_deg * rng.standard_normal(),
+                              pp + (noise_m / meters) * rng.standard_normal(2))
+                    dq.append(v)
+        for r in rids:                                # disconnected rooms: own independent draw
+            if r not in err:
+                err[r] = (noise_deg * rng.standard_normal(), (noise_m / meters) * rng.standard_normal(2))
+        for s in infos:
+            dr, dp = err[fl.panos[s]["room"]]
+            infos[s]["rot_deg"] += dr; infos[s]["pos"] = infos[s]["pos"] + dp
     elif model in ("salve", "badgr", "covispose"):
         if not (pose_file and Path(pose_file).exists()):
             raise NotImplementedError(
                 f"pose_model={model}: run {model} on this floor and pass --pose_file <json of "
                 f"stem->{{rot_deg,pos}}>. Until then use --pose_model noise for the sensitivity sweep.")
         raw = json.load(open(pose_file))
+        missing = [s for s in infos if s not in raw]
         for s in list(infos):
             if s in raw:
                 infos[s]["rot_deg"] = float(raw[s]["rot_deg"]); infos[s]["pos"] = np.asarray(raw[s]["pos"], float)
+        if missing:
+            # Panos the method did not localize must NOT silently keep GT (that flatters the result).
+            # Drop them so build/eval only use estimated poses.
+            print(f"[poses] {model}: {len(missing)}/{len(infos)} panos not localized -> dropped "
+                  f"(no GT fallback): {missing[:6]}{'...' if len(missing) > 6 else ''}")
+            for s in missing:
+                infos.pop(s)
     elif model != "gt":
         raise ValueError(f"unknown pose_model {model!r}")
 
