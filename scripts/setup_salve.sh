@@ -33,11 +33,19 @@ if [ ! -x "$CONDA_ROOT/bin/conda" ]; then
   bash /tmp/mc.sh -b -p "$CONDA_ROOT"
 fi
 source "$CONDA_ROOT/etc/profile.d/conda.sh"
-if ! conda env list | grep -q "salve-v1"; then
-  # their pinned Linux env (brings GTSAM, GTSFM, Open3D, hydra, rdp, pytorch)
-  conda env create -f "$SALVE_ROOT/environment_ubuntu-latest.yml"
+# The classic conda solver OOM-gets-Killed on the login-node cgroup for this heavy env. Solve with
+# micromamba instead (tiny static binary, low memory, strict channel priority by default).
+export MAMBA_ROOT_PREFIX="$CONDA_ROOT"
+MM="$CONDA_ROOT/bin/micromamba"
+if [ ! -x "$MM" ]; then
+  wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C "$CONDA_ROOT" bin/micromamba
 fi
-conda activate salve-v1
+conda config --set channel_priority strict || true
+if [ ! -d "$CONDA_ROOT/envs/salve-v1" ]; then
+  # their pinned Linux env (brings GTSAM, GTSFM, Open3D, hydra, rdp, pytorch)
+  "$MM" create -y -p "$CONDA_ROOT/envs/salve-v1" -f "$SALVE_ROOT/environment_ubuntu-latest.yml"
+fi
+conda activate "$CONDA_ROOT/envs/salve-v1"
 pip install -e "$SALVE_ROOT"
 
 
