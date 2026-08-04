@@ -50,9 +50,15 @@ if [ ! -e "$MHNET/vanishing_angle/${BUILDING}.json" ]; then
   python "$SALVE_ROOT/scripts/split_vanishing_angle_file.py" \
       --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" --out "$MHNET/vanishing_angle"
 fi
-# SALVe bug: vanishing-angle JSON keys are strings ("6") but the loader indexes int i -> KeyError. Patch (idempotent).
-sed -i 's/vanishing_angle_deg = vanishing_angles\[i\]/vanishing_angle_deg = vanishing_angles.get(str(i), vanishing_angles.get(i, 0.0))/' \
+# --- patch two SALVe repo bugs (reset to pristine first so patches are deterministic each run) ---
+git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py 2>/dev/null || true
+# (a) vanishing-angle JSON is keyed by pano FILENAME stem, but the loader indexed int i -> use the stem
+sed -i 's#vanishing_angle_deg = vanishing_angles\[i\]#vanishing_angle_deg = vanishing_angles.get(Path(img_fpath).stem, 0.0)#' \
     "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
+# (b) render_dataset_bev calls load_inferred_floor_pose_graphs() without predictions_data_root -> env default
+sed -i 's#predictions_data_root: str$#predictions_data_root: str = os.environ.get("MHNET_PRED_ROOT")#' \
+    "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
+export MHNET_PRED_ROOT="$MHNET"
 mkdir -p "$DUMMY_DEPTH"
 
 echo "### 1/4 W/D/O alignment hypotheses (building $BUILDING) ###"
