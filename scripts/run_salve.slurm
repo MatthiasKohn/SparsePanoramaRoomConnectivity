@@ -50,14 +50,17 @@ if [ ! -e "$MHNET/vanishing_angle/${BUILDING}.json" ]; then
   python "$SALVE_ROOT/scripts/split_vanishing_angle_file.py" \
       --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" --out "$MHNET/vanishing_angle"
 fi
-# --- patch two SALVe repo bugs (reset to pristine first so patches are deterministic each run) ---
-git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py 2>/dev/null || true
+# --- patch SALVe repo bugs (reset to pristine first so patches are deterministic each run) ---
+git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py scripts/render_dataset_bev.py 2>/dev/null || true
 # (a) vanishing-angle JSON is keyed by pano FILENAME stem, but the loader indexed int i -> use the stem
 sed -i 's#vanishing_angle_deg = vanishing_angles\[i\]#vanishing_angle_deg = vanishing_angles.get(Path(img_fpath).stem, 0.0)#' \
     "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
 # (b) render_dataset_bev calls load_inferred_floor_pose_graphs() without predictions_data_root -> env default
 sed -i 's#predictions_data_root: str$#predictions_data_root: str = os.environ.get("MHNET_PRED_ROOT")#' \
     "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
+# (c) render_dataset_bev calls generate_texture_maps_for_pair() but never imports it -> add the import
+sed -i '/^import salve.utils.bev_rendering_utils as bev_rendering_utils$/a from salve.utils.bev_rendering_utils import generate_texture_maps_for_pair' \
+    "$SALVE_ROOT/scripts/render_dataset_bev.py"
 export MHNET_PRED_ROOT="$MHNET"
 mkdir -p "$DUMMY_DEPTH"
 
