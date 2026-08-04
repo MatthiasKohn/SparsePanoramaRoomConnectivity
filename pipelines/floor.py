@@ -23,10 +23,16 @@ import cv2
 from sparsepano import config
 from sparsepano.datasets import zind_floor
 from sparsepano.geometry import panoproj
-from sparsepano.gs import gs_optim, gsplat_init as gi
 from sparsepano.providers import poses as PRO_POSE, depth as PRO_DEPTH
 from sparsepano.providers import connectivity as PRO_CONN, completion as PRO_COMP
-from pipelines.gs_room_prototype import build_room_gaussians, merge, gsplat_render, _lookat_c2w
+
+
+# gs_optim/gsplat_init/gs_room_prototype pull in torch+gsplat (heavy, need CUDA). Import them lazily
+# so `--metrics_only` (pose error + door consistency) stays pure-numpy and light enough for a login node.
+def _load_gs():
+    global gs_optim, gi, build_room_gaussians, merge, gsplat_render, _lookat_c2w
+    from sparsepano.gs import gs_optim, gsplat_init as gi
+    from pipelines.gs_room_prototype import build_room_gaussians, merge, gsplat_render, _lookat_c2w
 
 
 # ----------------------------------------------------------------- small helpers
@@ -280,8 +286,6 @@ def optimize_floor(g, fl, meters, home, stems, render_poses, hflip, vflip, fov, 
 
 # ----------------------------------------------------------------- main
 def main(a):
-    import torch
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     fl = zind_floor.ZindFloor(Path(a.home) / "zind_data.json", floor=a.floor)
     meters = float(fl.meters_per_coord)
     panos = [p for p in fl.panos if len(np.asarray(fl.panos[p]["verts_global"])) >= 3]
@@ -314,6 +318,11 @@ def main(a):
         append_results(config.RESULTS_ROOT / "floor" / "results.csv", row)
         print(f"[floor] (metrics_only) appended row -> {config.RESULTS_ROOT / 'floor' / 'results.csv'}")
         return
+
+    # everything below needs rendering -> now (and only now) pull in torch + gsplat
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    _load_gs()
 
     # convention calibration from a SOLID GT room (render convention is global)
     r0 = list(rooms_map.values())[0][0]
