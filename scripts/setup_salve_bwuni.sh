@@ -22,12 +22,15 @@ echo "=== 1/4  clone SALVe ==="
 
 echo "=== 2/4  conda env (miniforge module) + pip deps ==="
 module load devel/miniforge
-source "$(conda info --base)/etc/profile.d/conda.sh"
+CONDA_BASE="$(conda info --base)"
+source "$CONDA_BASE/etc/profile.d/conda.sh"
 if [ ! -x "$ENV_PREFIX/bin/python" ]; then
-  # trivial bare env (python+pip) -> instant, tiny; everything else via pip (like the Leonardo port)
-  conda create -y -p "$ENV_PREFIX" python=3.8 pip
+  # bwHPC's shared `conda` launcher stub fails on `create` ("No module named 'conda'"). Bypass it:
+  # use mamba (miniforge ships it), else call the base conda binary directly.
+  ( command -v mamba >/dev/null 2>&1 && mamba create -y -p "$ENV_PREFIX" python=3.8 pip ) \
+    || "$CONDA_BASE/bin/conda" create -y -p "$ENV_PREFIX" python=3.8 pip
 fi
-conda activate "$ENV_PREFIX"
+conda activate "$ENV_PREFIX" || source "$CONDA_BASE/bin/activate" "$ENV_PREFIX"
 # era-appropriate torch for A100 (cu113 supports sm_80); wheel bundles its CUDA runtime
 pip install --no-input torch==1.12.1+cu113 torchvision==0.13.1+cu113 \
     --extra-index-url https://download.pytorch.org/whl/cu113

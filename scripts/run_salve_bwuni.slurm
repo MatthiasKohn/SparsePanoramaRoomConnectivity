@@ -31,7 +31,9 @@ set -eo pipefail
 cd "$SLURM_SUBMIT_DIR"; REPO="$PWD"
 mkdir -p logs "$OUT"
 module load devel/miniforge
-source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$ENV_PREFIX"
+CONDA_BASE="$(conda info --base)"
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+conda activate "$ENV_PREFIX" || source "$CONDA_BASE/bin/activate" "$ENV_PREFIX"
 export SALVE_REPO_DIRPATH="$SALVE_ROOT"
 HYP=$OUT/hypotheses; LAYOUT=$OUT/layout_bev; PREDS=$OUT/serialized_preds; DUMMY_DEPTH=$OUT/_nodepth
 MHNET=$(dirname "$(find "$SALVE_ASSETS/mhnet_preds" -maxdepth 4 -type d -name horizon_net 2>/dev/null | head -1)")
