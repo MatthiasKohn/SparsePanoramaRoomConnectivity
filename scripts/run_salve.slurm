@@ -51,7 +51,7 @@ if [ ! -e "$MHNET/vanishing_angle/${BUILDING}.json" ]; then
       --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" --out "$MHNET/vanishing_angle"
 fi
 # --- patch SALVe repo bugs (reset to pristine first so patches are deterministic each run) ---
-git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py scripts/render_dataset_bev.py 2>/dev/null || true
+git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py scripts/render_dataset_bev.py salve/utils/io.py 2>/dev/null || true
 # (a) vanishing-angle JSON is keyed by pano FILENAME stem, but the loader indexed int i -> use the stem
 sed -i 's#vanishing_angle_deg = vanishing_angles\[i\]#vanishing_angle_deg = vanishing_angles.get(Path(img_fpath).stem, 0.0)#' \
     "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
@@ -61,6 +61,9 @@ sed -i 's#predictions_data_root: str$#predictions_data_root: str = os.environ.ge
 # (c) render_dataset_bev calls generate_texture_maps_for_pair() but never imports it -> add the import
 sed -i '/^import salve.utils.bev_rendering_utils as bev_rendering_utils$/a from salve.utils.bev_rendering_utils import generate_texture_maps_for_pair' \
     "$SALVE_ROOT/scripts/render_dataset_bev.py"
+# (d) test.py writes a summary json with no dir -> makedirs("") crashes AFTER preds are saved. Guard it.
+sed -i 's#os.makedirs(os.path.dirname(json_fpath), exist_ok=True)#os.makedirs(os.path.dirname(json_fpath) or ".", exist_ok=True)#' \
+    "$SALVE_ROOT/salve/utils/io.py"
 export MHNET_PRED_ROOT="$MHNET"
 mkdir -p "$DUMMY_DEPTH"
 
