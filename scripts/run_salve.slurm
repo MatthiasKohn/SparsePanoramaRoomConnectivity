@@ -44,6 +44,12 @@ HYP=$OUT/hypotheses; LAYOUT=$OUT/layout_bev; PREDS=$OUT/serialized_preds; DUMMY_
 MHNET=$(dirname "$(find "$SALVE_ASSETS/mhnet_preds" -maxdepth 4 -type d -name horizon_net 2>/dev/null | head -1)")
 [ -d "$MHNET/horizon_net" ] || { echo "ERROR: horizon_net/ not found under $SALVE_ASSETS/mhnet_preds -- re-run setup_salve.sh"; exit 1; }
 echo "MHNet predictions root: $MHNET"
+# SALVe's loader reads {MHNET}/vanishing_angle/{building}.json -> split it here if missing (self-contained)
+if [ ! -e "$MHNET/vanishing_angle/${BUILDING}.json" ]; then
+  echo "  splitting vanishing angles into $MHNET/vanishing_angle ..."
+  python "$SALVE_ROOT/scripts/split_vanishing_angle_file.py" \
+      --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" --out "$MHNET/vanishing_angle"
+fi
 mkdir -p "$DUMMY_DEPTH"
 
 echo "### 1/4 W/D/O alignment hypotheses (building $BUILDING) ###"
