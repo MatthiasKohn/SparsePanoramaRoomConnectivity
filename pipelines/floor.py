@@ -302,6 +302,19 @@ def main(a):
     p_rmse, p_rot = pose_errors(gt_poses, build_poses, panos)
     print(f"[floor] pose error vs GT: RMSE {p_rmse:.3f} m | rot {p_rot:.1f} deg")
 
+    # ---------- metrics-only: pose error + door consistency, NO rendering (no gsplat needed) ----------
+    if a.metrics_only:
+        door = door_consistency(fl, rooms_map, adj, build_poses, gt_poses, meters)
+        print(f"[floor] door consistency: gap {door['door_gap_m']} m (max {door['door_gap_max_m']}) over {door['n_doors']} shared doors")
+        row = dict(home=home_id, floor=a.floor, pose_model=a.pose_model, depth_model=a.depth_model,
+                   connectivity=a.connectivity, completion=a.completion,
+                   noise_deg=a.noise_deg, noise_m=a.noise_m, pose_rmse_m=round(p_rmse, 3), rot_err_deg=round(p_rot, 2),
+                   n_rooms=len(rooms_map), n_eval=0,
+                   coverage=float("nan"), psnr=float("nan"), ssim=float("nan"), lpips=float("nan"), **door)
+        append_results(config.RESULTS_ROOT / "floor" / "results.csv", row)
+        print(f"[floor] (metrics_only) appended row -> {config.RESULTS_ROOT / 'floor' / 'results.csv'}")
+        return
+
     # convention calibration from a SOLID GT room (render convention is global)
     r0 = list(rooms_map.values())[0][0]
     d0 = PRO_DEPTH.get_depth(fl, a.home, r0, H, W, model="gt_layout", mask_doors=False)
@@ -404,6 +417,8 @@ if __name__ == "__main__":
     ap.add_argument("--home", required=True); ap.add_argument("--floor", default="floor_01")
     ap.add_argument("--tag", default="")
     # --- swappable blocks ---
+    ap.add_argument("--metrics_only", action="store_true",
+                    help="compute pose error + door consistency only (no gsplat rendering / PSNR)")
     ap.add_argument("--pose_model", default="gt", choices=["gt", "noise", "drift", "salve", "badgr", "covispose"])
     ap.add_argument("--noise_deg", type=float, default=0.0); ap.add_argument("--noise_m", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=0); ap.add_argument("--pose_file", default="")
