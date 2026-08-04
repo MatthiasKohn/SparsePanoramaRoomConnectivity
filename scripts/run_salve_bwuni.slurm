@@ -57,6 +57,9 @@ sed -i '/^import salve.utils.bev_rendering_utils as bev_rendering_utils$/a from 
 # (d) test.py writes a summary json with no dir -> makedirs("") crashes AFTER preds are saved. Guard it.
 sed -i 's#os.makedirs(os.path.dirname(json_fpath), exist_ok=True)#os.makedirs(os.path.dirname(json_fpath) or ".", exist_ok=True)#' \
     "$SALVE_ROOT/salve/utils/io.py"
+# (e) that summary dict holds numpy arrays -> json.dump fails. Tolerate non-serializable via default=str.
+sed -i 's#json.dump(data, f, indent=4)#json.dump(data, f, indent=4, default=str)#' \
+    "$SALVE_ROOT/salve/utils/io.py"
 export MHNET_PRED_ROOT="$MHNET"
 mkdir -p "$DUMMY_DEPTH"
 

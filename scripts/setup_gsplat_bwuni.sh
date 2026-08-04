@@ -10,8 +10,9 @@ EXT_ROOT="${EXT_ROOT:-/home/ul/ul_student/ul_fnm03/ext}"
 module load devel/miniforge
 source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate roomconn
 
-# nvcc 13 + CUDA 13 headers via pip (roomconn already has the cu13 runtime libs)
-pip install --no-input nvidia-cuda-nvcc-cu13 nvidia-cuda-runtime-cu13 nvidia-cuda-cccl-cu13
+# nvcc 13 + CUDA 13 headers via pip. NOTE: the '-cu13'-suffixed names are deprecated redirect stubs
+# that fail to build; the real packages dropped the suffix and are already 13.x to match roomconn's torch.
+pip install --no-input nvidia-cuda-nvcc nvidia-cuda-runtime nvidia-cuda-cccl
 
 # assemble a unified CUDA_HOME (bin/include/lib64) by symlinking the pip nvidia CUDA packages
 CUDA_HOME="$EXT_ROOT/cuda_home"; rm -rf "$CUDA_HOME"; mkdir -p "$CUDA_HOME/bin" "$CUDA_HOME/include" "$CUDA_HOME/lib64"
