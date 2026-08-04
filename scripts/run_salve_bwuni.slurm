@@ -43,6 +43,10 @@ if [ ! -e "$MHNET/vanishing_angle/${BUILDING}.json" ]; then
   python "$SALVE_ROOT/scripts/split_vanishing_angle_file.py" \
       --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" --out "$MHNET/vanishing_angle"
 fi
+# SALVe bug: vanishing-angle JSON keys are strings ("6") but the loader indexes int i -> KeyError.
+# Patch the loader to look up by str key (idempotent; re-running is a no-op once patched).
+sed -i 's/vanishing_angle_deg = vanishing_angles\[i\]/vanishing_angle_deg = vanishing_angles.get(str(i), vanishing_angles.get(i, 0.0))/' \
+    "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
 mkdir -p "$DUMMY_DEPTH"
 
 echo "### 1/4 W/D/O alignment hypotheses (building $BUILDING) ###"
