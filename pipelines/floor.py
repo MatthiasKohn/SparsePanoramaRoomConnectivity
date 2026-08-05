@@ -134,6 +134,29 @@ def pose_errors(gt, est, stems):
     return float(np.sqrt(np.mean(np.sum((sc * (Ec @ R) + G.mean(0) - G) ** 2, 1)))), rot
 
 
+def align_poses_to_gt(build_poses, render_poses, gt_poses, stems):
+    """Align estimated poses to GT by a global Sim(3) (reflection allowed) fit on camera centres.
+
+    Real pose methods (SALVe) output poses in their OWN world frame (different global rotation, scale,
+    and often a mirror), because pose is only recoverable up to a global similarity. Before measuring
+    rotation error or door consistency (which assume est and GT share a frame), we fit one global
+    Sim(3) mapping est centres -> GT centres and apply it to every estimated pose. Reflection is
+    allowed (SALVe's frame is mirrored: its angle = -ours). Returns (build', render')."""
+    S = [s for s in stems if s in build_poses and s in gt_poses]
+    if len(S) < 3:
+        return build_poses, render_poses
+    E = np.array([build_poses[s][:3, 3] for s in S]); G = np.array([gt_poses[s][:3, 3] for s in S])
+    Em, Gm = E.mean(0), G.mean(0); Ec, Gc = E - Em, G - Gm
+    U, Dsv, Vt = np.linalg.svd(Ec.T @ Gc)
+    R = (U @ Vt).T                                   # reflection allowed (SALVe's frame is mirrored)
+    sc = Dsv.sum() / max(np.sum(Ec ** 2), 1e-12)
+    # one uniform similarity T = [[sc*R, t],[0,1]] mapping the est frame onto GT. door_gap is invariant
+    # to any uniform T, so left-multiplying every est pose by T makes est & GT share a frame.
+    T = np.eye(4); T[:3, :3] = sc * R; T[:3, 3] = Gm - sc * R @ Em
+    return ({s: T @ P for s, P in build_poses.items()},
+            {s: T @ P for s, P in render_poses.items()})
+
+
 def door_consistency(fl, rooms_map, adj, build_poses, gt_poses, meters):
     """Cross-room / global-consistency metric (needs no rendering).
 
@@ -303,6 +326,11 @@ def main(a):
     rooms_map, adj = PRO_CONN.get_rooms(fl, panos, a.connectivity)
     rooms_map = {r: [s for s in ss if s in build_poses] for r, ss in rooms_map.items()}
     rooms_map = {r: ss for r, ss in rooms_map.items() if ss}
+    # real pose methods output in their own global frame (pose is defined only up to a similarity) ->
+    # align to GT before measuring rotation error / door consistency. GT/noise/drift are already in
+    # our frame (noise/drift ARE the error to measure), so they are left untouched.
+    if a.pose_model in ("salve", "badgr", "covispose"):
+        build_poses, render_poses = align_poses_to_gt(build_poses, render_poses, gt_poses, panos)
     p_rmse, p_rot = pose_errors(gt_poses, build_poses, panos)
     print(f"[floor] pose error vs GT: RMSE {p_rmse:.3f} m | rot {p_rot:.1f} deg")
 

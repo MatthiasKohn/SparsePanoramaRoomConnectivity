@@ -19,12 +19,14 @@ SALVE_ASSETS=$EXT_ROOT/salve_assets
 ENV_PREFIX=$EXT_ROOT/envs/salve-v1
 ZIND_ROOT=/home/ul/ul_student/ul_fnm03/data/zind/full_dataset
 OUT=$EXT_ROOT/salve_poses
-BUILDING=0021                 # MUST be in SALVe's TEST split
+BUILDING=0021                 # MUST be in SALVe's TEST split. Try others if localization is low:
+                              #   0203 0990 0809 0854 1041 0966 1184 ... (change BUILDING, re-sbatch)
 FLOOR=floor_01
 SPLIT=test
 VERIFIER_CKPT=$SALVE_ASSETS/models/mhnet_layout_floor_877.pth
 CONFIG_NAME=6ac3f3e5fe6fa3d4bfae7c124d7787b3.yaml
-CONF=0.93
+CONF=0.5                      # lowered from 0.93: layout-only recall is low, so accept more edges to
+                              # localize more panos (trades precision). Watch "localized X/Y panos".
 # =============================================================================
 
 set -eo pipefail
