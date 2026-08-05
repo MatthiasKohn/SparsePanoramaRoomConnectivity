@@ -25,16 +25,31 @@ def main():
     ap.add_argument("--csv", required=True)
     ap.add_argument("--out", default=".")
     ap.add_argument("--gate_m", type=float, default=0.05, help="acceptance tolerance for _gtcheck (m/deg)")
+    ap.add_argument("--est_tag", default=None,
+                    help="which SALVe variant to report as 'est', e.g. salve_est (layout) or "
+                         "salve_rgb_gt_layout / salve_rgb_dap. If omitted, uses the last est row per floor "
+                         "and WARNS if variants are mixed.")
     a = ap.parse_args()
     rows = list(csv.DictReader(open(a.csv)))
+    est_tags_seen = set()
     by = defaultdict(dict)                       # (home,floor) -> {role: row}  role in gtcheck/est/oracle
     for r in rows:
         t = r.get("tag", "") or ""
-        role = ("gtcheck" if t.endswith("gtcheck")
-                else "oracle" if t == "oracle"
-                else "est" if t.startswith("salve") else None)
+        if t.endswith("gtcheck"):
+            role = "gtcheck"
+        elif t == "oracle":
+            role = "oracle"
+        elif t.startswith("salve"):
+            role = "est"; est_tags_seen.add(t)
+            if a.est_tag and t != a.est_tag:
+                continue                          # keep only the requested variant
+        else:
+            role = None
         if role:
             by[(r["home"], r["floor"])][role] = r   # last write wins (latest run)
+    if len(est_tags_seen) > 1 and not a.est_tag:
+        print(f"WARNING: multiple SALVe variants in this CSV: {sorted(est_tags_seen)}")
+        print("  -> the 'est' rows are MIXED. Re-run with --est_tag <one of them> for a clean result.\n")
 
     passed, failed, table = [], [], []
     for (h, f), d in sorted(by.items()):
@@ -60,7 +75,8 @@ def main():
         v = np.array([x for x in vals if not math.isnan(x)])
         return (float(np.median(v)), float(np.mean(v)), len(v)) if len(v) else (float('nan'), float('nan'), 0)
     dr = [r for r in passed]
-    print(f"\n=== SALVe (layout-only) vs oracle over {len(dr)} gate-passing floors "
+    variant = a.est_tag or (list(est_tags_seen)[0] if len(est_tags_seen) == 1 else "MIXED (use --est_tag)")
+    print(f"\n=== SALVe [{variant}] vs oracle over {len(dr)} gate-passing floors "
           f"({len(failed)} failed gate) ===")
     for key, lbl in [("pose_rmse", "pose RMSE (m)"), ("rot", "rot err (deg)"), ("door", "door_gap (m)")]:
         med, mean, n = agg([r[key] for r in dr])
