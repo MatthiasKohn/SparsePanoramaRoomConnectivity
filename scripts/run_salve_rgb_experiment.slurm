@@ -29,6 +29,8 @@ BUILDINGS=(0021 0203 0809 0966 1041 0668 0127 0494 0854 1184 0629 0576 0100 0190
 # =============================================================================
 
 
+
+
 set -eo pipefail
 cd "$SLURM_SUBMIT_DIR"; REPO="$PWD"; mkdir -p logs "$OUT"
 module load devel/miniforge
@@ -40,13 +42,16 @@ export MHNET_PRED_ROOT="$MHNET"
 [ -e "$MHNET/vanishing_angle/0021.json" ] || python "$SALVE_ROOT/scripts/split_vanishing_angle_file.py" \
     --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" --out "$MHNET/vanishing_angle"
 # --- SALVe repo bug patches (reset then apply; deterministic each run) ---
-git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py scripts/render_dataset_bev.py salve/utils/io.py salve/utils/bev_rendering_utils.py 2>/dev/null || true
+git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py scripts/render_dataset_bev.py salve/utils/io.py salve/utils/bev_rendering_utils.py salve/utils/hohonet_inference.py 2>/dev/null || true
 sed -i 's#vanishing_angle_deg = vanishing_angles\[i\]#vanishing_angle_deg = vanishing_angles.get(Path(img_fpath).stem, 0.0)#' "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
 sed -i 's#predictions_data_root: str$#predictions_data_root: str = os.environ.get("MHNET_PRED_ROOT")#' "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
 sed -i '/^import salve.utils.bev_rendering_utils as bev_rendering_utils$/a from salve.utils.bev_rendering_utils import generate_texture_maps_for_pair' "$SALVE_ROOT/scripts/render_dataset_bev.py"
 sed -i 's#os.makedirs(os.path.dirname(json_fpath), exist_ok=True)#os.makedirs(os.path.dirname(json_fpath) or ".", exist_ok=True)#' "$SALVE_ROOT/salve/utils/io.py"
 sed -i 's#json.dump(data, f, indent=4)#json.dump(data, f, indent=4, default=str)#' "$SALVE_ROOT/salve/utils/io.py"
 sed -i 's#bev_rendering_utils\.render_bev_pair#render_bev_pair#g' "$SALVE_ROOT/salve/utils/bev_rendering_utils.py"
+# (g) if any pano's depth is missing SALVe calls broken HoHoNet (update_config) and kills the whole
+#     render pool. Replace that fallback with a zero-depth write -> that pair renders empty & is skipped.
+sed -i 's#^    infer_depth(args)#    import numpy as _np, imageio as _im; _im.imwrite(f"{building_depth_save_dir}/{fname_stem}.depth.png", _np.zeros((512,1024),_np.uint16)); return#' "$SALVE_ROOT/salve/utils/hohonet_inference.py"
 
 run_one() (
   set -eo pipefail

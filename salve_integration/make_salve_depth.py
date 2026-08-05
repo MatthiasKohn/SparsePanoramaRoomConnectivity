@@ -9,7 +9,7 @@ Format (from salve/utils/bev_rendering_utils.get_xyzrgb_from_depth):
   python salve_integration/make_salve_depth.py --home $ZIND_ROOT/0021 --building_id 0021 \
       --depth_save_root <dir> --depth_model gt_layout    # or dap / pager (monocular)
 """
-import argparse
+import argparse, json, glob
 from pathlib import Path
 import numpy as np
 import imageio
@@ -26,13 +26,15 @@ def main():
     ap.add_argument("--building_id", required=True)
     ap.add_argument("--depth_save_root", required=True)
     ap.add_argument("--depth_model", default="gt_layout", choices=["gt_layout", "fused", "pager", "dap"])
-    ap.add_argument("--floors", nargs="*", default=["floor_01", "floor_02", "floor_00", "floor_03"])
     a = ap.parse_args()
     outdir = Path(a.depth_save_root) / a.building_id
     outdir.mkdir(parents=True, exist_ok=True)
+    # discover the building's ACTUAL floors (so no annotated pano is missed -> no HoHoNet fallback)
+    jd = json.load(open(Path(a.home) / "zind_data.json"))
+    floors = list(jd.get("merger", {}).keys()) or ["floor_01"]
 
     n = 0
-    for floor in a.floors:
+    for floor in floors:
         try:
             fl = zind_floor.ZindFloor(Path(a.home) / "zind_data.json", floor=floor)
         except Exception:

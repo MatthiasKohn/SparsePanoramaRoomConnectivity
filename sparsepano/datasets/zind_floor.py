@@ -35,9 +35,14 @@ def _door_segments(flat):
 class ZindFloor:
     def __init__(self, json_path, floor="floor_01"):
         d = json.load(open(json_path))
-        self.meters_per_coord = d["scale_meters_per_coordinate"][floor]
+        scales = d["scale_meters_per_coordinate"]
+        self.meters_per_coord = scales.get(floor)
         if self.meters_per_coord is None:
-            raise ValueError(f"floor {floor!r} has null scale_meters_per_coordinate")
+            # ZInD leaves some floors' scale null (calibration issues). Impute like SALVe:
+            # average of the building's valid floor scales, else the ZInD dataset average (3.5083).
+            valid = [v for v in scales.values() if v is not None]
+            self.meters_per_coord = float(np.mean(valid)) if valid else 3.5083
+            print(f"[zind] {Path(json_path).parent.name}/{floor}: null scale -> imputed {self.meters_per_coord:.3f}")
         self.panos = {}                       # stem -> info
         merger = d["merger"][floor]
         for room_key, room in merger.items():       # complete_room_XX
