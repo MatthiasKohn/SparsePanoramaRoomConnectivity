@@ -148,14 +148,24 @@ def align_poses_to_gt(build_poses, render_poses, gt_poses, stems):
     E = np.array([build_poses[s][:3, 3] for s in S]); G = np.array([gt_poses[s][:3, 3] for s in S])
     Em, Gm = E.mean(0), G.mean(0); Ec, Gc = E - Em, G - Gm
     U, Dsv, Vt = np.linalg.svd(Ec.T @ Gc)
-    Dd = np.eye(3)                                   # proper rotation: the mirror is already undone in
-    if np.linalg.det(U @ Vt) < 0:                    # export (rot=-theta, x un-reflected), so no
-        Dd[-1, -1] = -1                              # reflection is needed here.
-    R = (U @ Dd @ Vt).T
-    sc = (Dsv * np.diag(Dd)).sum() / max(np.sum(Ec ** 2), 1e-12)
-    # one uniform similarity T = [[sc*R, t],[0,1]] mapping the est frame onto GT. door_gap is invariant
-    # to any uniform T, so left-multiplying every est pose by T makes est & GT share a frame.
-    T = np.eye(4); T[:3, :3] = sc * R; T[:3, 3] = Gm - sc * R @ Em
+    denom = max(np.sum(Ec ** 2), 1e-12); det = np.linalg.det(U @ Vt)
+    # Try BOTH a proper rotation and a reflected alignment, keep whichever fits the centres better.
+    # Real pose graphs (SALVe) sometimes reconstruct a floor globally MIRRORED (a similarity-transform
+    # ambiguity); we must allow reflection to score those fairly, but NOT force it (identity must stay
+    # identity). One uniform T = [[sc*R, t],[0,1]] is applied to every est pose; door_gap is invariant
+    # to any uniform T, so this makes est & GT share a frame without changing internal consistency.
+    best = None
+    for want in (+1, -1):
+        Dd = np.eye(3)
+        if np.sign(det) != want:
+            Dd[-1, -1] = -1
+        R = (U @ Dd @ Vt).T
+        sc = (Dsv * np.diag(Dd)).sum() / denom
+        t = Gm - sc * R @ Em
+        resid = float(np.mean(np.sum((E @ (sc * R).T + t - G) ** 2, 1)))
+        if best is None or resid < best[0]:
+            T = np.eye(4); T[:3, :3] = sc * R; T[:3, 3] = t; best = (resid, T)
+    T = best[1]
     return ({s: T @ P for s, P in build_poses.items()},
             {s: T @ P for s, P in render_poses.items()})
 
