@@ -27,19 +27,23 @@ def main():
     ap.add_argument("--gate_m", type=float, default=0.05, help="acceptance tolerance for _gtcheck (m/deg)")
     a = ap.parse_args()
     rows = list(csv.DictReader(open(a.csv)))
-    by = defaultdict(dict)                       # (home,floor) -> {tag: row}
+    by = defaultdict(dict)                       # (home,floor) -> {role: row}  role in gtcheck/est/oracle
     for r in rows:
-        if r.get("tag") in ("salve_gtcheck", "salve_est", "oracle"):
-            by[(r["home"], r["floor"])][r["tag"]] = r
+        t = r.get("tag", "") or ""
+        role = ("gtcheck" if t.endswith("gtcheck")
+                else "oracle" if t == "oracle"
+                else "est" if t.startswith("salve") else None)
+        if role:
+            by[(r["home"], r["floor"])][role] = r   # last write wins (latest run)
 
     passed, failed, table = [], [], []
     for (h, f), d in sorted(by.items()):
-        if not {"salve_gtcheck", "salve_est"} <= set(d):
+        if not {"gtcheck", "est"} <= set(d):
             continue
-        gc = d["salve_gtcheck"]
+        gc = d["gtcheck"]
         gate_ok = fnum(gc["pose_rmse_m"]) <= a.gate_m and (
             math.isnan(fnum(gc["door_gap_m"])) or fnum(gc["door_gap_m"]) <= a.gate_m)
-        est = d["salve_est"]; orc = d.get("oracle", {})
+        est = d["est"]; orc = d.get("oracle", {})
         loc = f"{est.get('n_rooms','?')}/{orc.get('n_rooms','?')}"
         rec = dict(home=h, floor=f, gate="ok" if gate_ok else "FAIL",
                    loc_rooms=loc, pose_rmse=fnum(est["pose_rmse_m"]), rot=fnum(est["rot_err_deg"]),
