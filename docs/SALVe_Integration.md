@@ -35,6 +35,26 @@ weights + released MHNet W/D/O predictions, so we **train nothing**.
 4. Real number: swap to `_est.json`. Run oracle on the SAME building. Both land in `results.csv`
    (pose_rmse, rot_err_deg, door_gap_m, PSNR/SSIM/LPIPS) -> directly comparable.
 
+## Pose convention (derived from SALVe source; certified against door_gap=0)
+SALVe's `generate_Sim2_from_floorplan_transform` puts poses in a RIGHT-handed frame via an
+x-reflection of ZInD: its `Sim2.theta = -(our rot_deg)`, and its world pano position
+(`Sim2.transform_from(0) = s*t`) is x-reflected vs ours. `export_salve_poses._pg_to_posefile`
+converts back to OUR convention so `pose_c2w_gt` reproduces GT exactly:
+
+    rot_deg = -theta ;  pos = (-world_x, world_y)   with world = Sim2.transform_from(origin)
+
+Then `floor.py` applies a global Sim(3) (proper rotation) alignment for real-pose models before the
+metrics (pose is only defined up to a similarity). ACCEPTANCE TEST: feeding SALVe's `_gt.json`
+through `floor.py --pose_model salve` must give pose RMSE ~0 AND door_gap ~0. Verified on 0021
+(0.000 m, 0.0 deg, 0.0 m over 7 doors). Only after that pass are the `_est.json` numbers trusted.
+
+## First real result (0021 floor_01, layout-only verifier, CONF 0.5)
+Oracle (GT): pose_rmse 0, rot 0, door_gap 0 (30/30 panos, 7 doors).
+SALVe:       pose_rmse 1.82 m, rot 32.9 deg, door_gap 2.39 m (max 3.69), 18/30 localized, 3 doors.
+-> layout-only SALVe is far from the oracle here; the large rotation error (33 deg) drives the door
+   gap, consistent with the lever-arm finding. Caveats: one floor, weak (layout-only) modality,
+   only 18/30 localized. Run more test floors for a distribution before concluding.
+
 ## First-run risk points (I cannot test these without the cluster)
 - `test.py` dataloader reads `layout_data_root` (sed'd to our renders) over `--split`; only the one
   rendered building is present, so only it is scored. If it errors on missing buildings, we scope the

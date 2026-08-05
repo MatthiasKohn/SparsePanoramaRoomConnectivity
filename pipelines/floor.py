@@ -341,7 +341,7 @@ def main(a):
     if a.metrics_only:
         door = door_consistency(fl, rooms_map, adj, build_poses, gt_poses, meters)
         print(f"[floor] door consistency: gap {door['door_gap_m']} m (max {door['door_gap_max_m']}) over {door['n_doors']} shared doors")
-        row = dict(home=home_id, floor=a.floor, pose_model=a.pose_model, depth_model=a.depth_model,
+        row = dict(home=home_id, floor=a.floor, tag=(a.tag or ""), pose_model=a.pose_model, depth_model=a.depth_model,
                    connectivity=a.connectivity, completion=a.completion,
                    noise_deg=a.noise_deg, noise_m=a.noise_m, pose_rmse_m=round(p_rmse, 3), rot_err_deg=round(p_rot, 2),
                    n_rooms=len(rooms_map), n_eval=0,
@@ -391,7 +391,7 @@ def main(a):
     print(f"[floor] door consistency: gap {door['door_gap_m']} m (max {door['door_gap_max_m']}) over {door['n_doors']} shared doors")
 
     # ---------- append one row to the master results.csv ----------
-    row = dict(home=home_id, floor=a.floor, pose_model=a.pose_model, depth_model=a.depth_model,
+    row = dict(home=home_id, floor=a.floor, tag=(a.tag or ""), pose_model=a.pose_model, depth_model=a.depth_model,
                connectivity=a.connectivity, completion=a.completion,
                noise_deg=a.noise_deg, noise_m=a.noise_m, pose_rmse_m=round(p_rmse, 3), rot_err_deg=round(p_rot, 2),
                n_rooms=len(rooms_map), n_eval=min(len(extras), a.max_eval), **metrics, **door)
