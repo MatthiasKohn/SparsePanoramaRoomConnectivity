@@ -148,8 +148,11 @@ def align_poses_to_gt(build_poses, render_poses, gt_poses, stems):
     E = np.array([build_poses[s][:3, 3] for s in S]); G = np.array([gt_poses[s][:3, 3] for s in S])
     Em, Gm = E.mean(0), G.mean(0); Ec, Gc = E - Em, G - Gm
     U, Dsv, Vt = np.linalg.svd(Ec.T @ Gc)
-    R = (U @ Vt).T                                   # reflection allowed (SALVe's frame is mirrored)
-    sc = Dsv.sum() / max(np.sum(Ec ** 2), 1e-12)
+    Dd = np.eye(3)                                   # proper rotation: the mirror is already undone in
+    if np.linalg.det(U @ Vt) < 0:                    # export (rot=-theta, x un-reflected), so no
+        Dd[-1, -1] = -1                              # reflection is needed here.
+    R = (U @ Dd @ Vt).T
+    sc = (Dsv * np.diag(Dd)).sum() / max(np.sum(Ec ** 2), 1e-12)
     # one uniform similarity T = [[sc*R, t],[0,1]] mapping the est frame onto GT. door_gap is invariant
     # to any uniform T, so left-multiplying every est pose by T makes est & GT share a frame.
     T = np.eye(4); T[:3, :3] = sc * R; T[:3, 3] = Gm - sc * R @ Em

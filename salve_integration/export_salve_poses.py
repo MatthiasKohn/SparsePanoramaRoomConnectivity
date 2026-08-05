@@ -33,12 +33,19 @@ import salve.utils.axis_alignment_utils as axis_alignment_utils
 
 
 def _pg_to_posefile(pg):
-    """PoseGraph2d -> {stem: {rot_deg, pos}} using each node's Sim2 and image_path stem."""
+    """PoseGraph2d -> {stem: {rot_deg, pos}} in OUR pipeline's convention.
+
+    SALVe's Sim2 (see generate_Sim2_from_floorplan_transform) works in a right-handed frame obtained
+    from ZInD by an x-reflection: its angle = -(our rot_deg) and its world pano position (s*t via
+    transform_from) is x-reflected vs ours. We convert back so our pose_c2w_gt reproduces GT exactly:
+        rot_deg = -theta ;  pos = (-world_x, world_y)   where world = Sim2.transform_from(origin).
+    Validated: feeding SALVe's GT graph through this gives pose RMSE 0 and door_gap 0."""
     out = {}
     for i, pano in pg.nodes.items():
         s = pano.global_Sim2_local
+        world = s.transform_from(np.zeros((1, 2)))[0]        # s*(R@0 + t) = world pano position
         stem = Path(pano.image_path).stem if pano.image_path else str(i)
-        out[stem] = {"rot_deg": float(s.theta_deg), "pos": [float(s.translation[0]), float(s.translation[1])]}
+        out[stem] = {"rot_deg": float(-s.theta_deg), "pos": [float(-world[0]), float(world[1])]}
     return out
 
 

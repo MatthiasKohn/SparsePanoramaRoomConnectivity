@@ -109,6 +109,8 @@ def get_poses(fl, meters, model="gt", noise_deg=0.0, noise_m=0.0, seed=0, pose_f
     elif model != "gt":
         raise ValueError(f"unknown pose_model {model!r}")
 
+    # SALVe/real methods: the pose_file is pre-converted to OUR (rot_deg, pos) convention by
+    # export_salve_poses (angle un-negated, x un-reflected), so all models build with pose_c2w_gt.
     build = {s: pose_c2w_gt(infos[s], meters) for s in infos}
     render = {s: pose_c2w_render(infos[s], meters) for s in infos}
     gt = {s: pose_c2w_gt(fl.panos[s], meters) for s in infos}
