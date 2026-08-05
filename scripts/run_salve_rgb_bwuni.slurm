@@ -37,8 +37,11 @@ MHNET=$(dirname "$(find "$SALVE_ASSETS/mhnet_preds" -maxdepth 4 -type d -name ho
 export MHNET_PRED_ROOT="$MHNET"
 [ -e "$MHNET/vanishing_angle/${BUILDING}.json" ] || python "$SALVE_ROOT/scripts/split_vanishing_angle_file.py" \
     --csv "$SALVE_ROOT/assets/zind_vanishing_angles.csv" --out "$MHNET/vanishing_angle"
-# --- SALVe repo bug patches (same as layout run) ---
-git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py scripts/render_dataset_bev.py salve/utils/io.py 2>/dev/null || true
+# --- SALVe repo bug patches (same as layout run, + one for the RGB render path) ---
+git -C "$SALVE_ROOT" checkout -- salve/dataset/hnet_prediction_loader.py scripts/render_dataset_bev.py salve/utils/io.py salve/utils/bev_rendering_utils.py 2>/dev/null || true
+# (f) RGB path only: generate_texture_maps_for_pair calls bev_rendering_utils.render_bev_pair from
+#     inside bev_rendering_utils.py itself (module self-reference, undefined) -> drop the self-prefix.
+sed -i 's#bev_rendering_utils\.render_bev_pair#render_bev_pair#g' "$SALVE_ROOT/salve/utils/bev_rendering_utils.py"
 sed -i 's#vanishing_angle_deg = vanishing_angles\[i\]#vanishing_angle_deg = vanishing_angles.get(Path(img_fpath).stem, 0.0)#' "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
 sed -i 's#predictions_data_root: str$#predictions_data_root: str = os.environ.get("MHNET_PRED_ROOT")#' "$SALVE_ROOT/salve/dataset/hnet_prediction_loader.py"
 sed -i '/^import salve.utils.bev_rendering_utils as bev_rendering_utils$/a from salve.utils.bev_rendering_utils import generate_texture_maps_for_pair' "$SALVE_ROOT/scripts/render_dataset_bev.py"
