@@ -34,8 +34,14 @@ BUILDINGS=(0021 0203 0809 0966 1041 0668 0127 0494 0854 1184 0629 0576 0100 0190
 set -eo pipefail
 cd "$SLURM_SUBMIT_DIR"; REPO="$PWD"; mkdir -p logs "$OUT"
 module load devel/miniforge
-CONDA_BASE="$(conda info --base)"; source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate "$ENV_PREFIX" || source "$CONDA_BASE/bin/activate" "$ENV_PREFIX"
+# Locate conda base by PATH (do NOT run the `conda` stub: it's broken on some bwHPC compute nodes,
+# "No module named 'conda'"). Then activate best-effort, and force the env's python onto PATH so all
+# `python` calls use it regardless of whether conda activation succeeds on this node.
+CONDA_BASE="$(dirname "$(dirname "$(command -v conda)")")"
+source "$CONDA_BASE/etc/profile.d/conda.sh" 2>/dev/null || true
+conda activate "$ENV_PREFIX" 2>/dev/null || source "$CONDA_BASE/bin/activate" "$ENV_PREFIX" 2>/dev/null || true
+export PATH="$ENV_PREFIX/bin:$PATH"
+export LD_LIBRARY_PATH="$ENV_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 export SALVE_REPO_DIRPATH="$SALVE_ROOT" ZIND_ROOT RESULTS_ROOT="$REPO/results" PROJECT_ROOT="$REPO"
 MHNET=$(dirname "$(find "$SALVE_ASSETS/mhnet_preds" -maxdepth 4 -type d -name horizon_net 2>/dev/null | head -1)")
 export MHNET_PRED_ROOT="$MHNET"
