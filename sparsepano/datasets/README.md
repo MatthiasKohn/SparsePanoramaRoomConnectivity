@@ -20,3 +20,22 @@ To add a dataset:
 Evaluators must skip metrics that require missing capabilities and explain the
 skip in their report.
 
+## Floor pipeline adapters
+
+The legacy reconstruction pipeline consumes the narrower `ZindFloor` object
+contract. `floor_factory.load_floor()` selects either that implementation or
+`Structured3DFloor` without dataset checks elsewhere in the pipeline.
+
+Structured3D expects `--home` to be one extracted scene directory:
+
+```bash
+python -m pipelines.floor \
+  --dataset structured3d \
+  --home /path/to/Structured3D/scene_00000 \
+  --config full --pose_model gt --metrics_only
+```
+
+Use `scripts/download_structured3d.sh` on a networked login node. It extracts
+archives beneath `$DEST/Structured3D/`, so the path passed to `--home` is
+`$DEST/Structured3D/scene_XXXXX`. Only panorama and `annotation_3d` archives
+are fetched; perspective renders are intentionally excluded.

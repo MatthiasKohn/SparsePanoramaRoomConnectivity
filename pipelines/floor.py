@@ -21,7 +21,7 @@ import numpy as np
 import cv2
 
 from sparsepano import config
-from sparsepano.datasets import zind_floor
+from sparsepano.datasets.floor_factory import load_floor
 from sparsepano.geometry import panoproj
 from sparsepano.providers import poses as PRO_POSE, depth as PRO_DEPTH
 from sparsepano.providers import connectivity as PRO_CONN, completion as PRO_COMP
@@ -36,8 +36,9 @@ def _load_gs():
 
 
 # ----------------------------------------------------------------- small helpers
-def _pano_rgb(home, stem, hw):
-    im = cv2.imread(str(Path(home) / "panos" / f"{stem}.jpg"))
+def _pano_rgb(fl, home, stem, hw):
+    path = fl.panos[stem].get("image_path", Path(home) / "panos" / f"{stem}.jpg")
+    im = cv2.imread(str(path))
     return None if im is None else cv2.cvtColor(cv2.resize(im, (hw[1], hw[0])), cv2.COLOR_BGR2RGB)
 
 
@@ -232,7 +233,7 @@ def build_floor(fl, meters, home, rooms_map, build_poses, H, W, a):
         for s in rooms_map[r]:
             depth = _cull_depth_edges(PRO_DEPTH.get_depth(fl, home, s, H, W, model=a.depth_model,
                                      max_depth=a.max_depth, carve_doors=a.carve_doors))
-            rgb = _pano_rgb(home, s, (H, W))
+            rgb = _pano_rgb(fl, home, s, (H, W))
             if rgb is None:
                 continue
             g = build_room_gaussians(rgb, depth, build_poses[s], stride=a.stride,
@@ -278,7 +279,7 @@ def optimize_floor(g, fl, meters, home, stems, render_poses, hflip, vflip, fov, 
     K = torch.tensor(gs_optim._K(fov, size), device=device).float()[None]
     sup = []
     for s in stems:
-        rgb = _pano_rgb(home, s, (max(size, 512), max(size, 512) * 2))
+        rgb = _pano_rgb(fl, home, s, (max(size, 512), max(size, 512) * 2))
         if rgb is None:
             continue
         base = render_poses[s]
@@ -314,14 +315,15 @@ def optimize_floor(g, fl, meters, home, stems, render_poses, hflip, vflip, fov, 
 
 # ----------------------------------------------------------------- main
 def main(a):
-    fl = zind_floor.ZindFloor(Path(a.home) / "zind_data.json", floor=a.floor)
+    fl = load_floor(a.dataset, a.home, floor=a.floor, config=a.config)
     meters = float(fl.meters_per_coord)
     panos = [p for p in fl.panos if len(np.asarray(fl.panos[p]["verts_global"])) >= 3]
     home_id = Path(a.home).name
-    tag = a.tag or f"{home_id}_{a.floor}_pose-{a.pose_model}_depth-{a.depth_model}"
+    floor_id = a.floor if a.dataset == "zind" else "scene"
+    tag = a.tag or f"{home_id}_{floor_id}_pose-{a.pose_model}_depth-{a.depth_model}"
     out = config.RESULTS_ROOT / "floor" / tag; out.mkdir(parents=True, exist_ok=True)
     H, W = a.gs_h, a.gs_h * 2
-    print(f"[floor] {home_id}/{a.floor}: {len(panos)} panos | pose={a.pose_model} depth={a.depth_model} "
+    print(f"[floor] {a.dataset}:{home_id}/{floor_id}: {len(panos)} panos | pose={a.pose_model} depth={a.depth_model} "
           f"conn={a.connectivity} completion={a.completion}")
 
     build_poses, render_poses, gt_poses = PRO_POSE.get_poses(
@@ -343,7 +345,7 @@ def main(a):
     if a.metrics_only:
         door = door_consistency(fl, rooms_map, adj, build_poses, gt_poses, meters)
         print(f"[floor] door consistency: gap {door['door_gap_m']} m (max {door['door_gap_max_m']}) over {door['n_doors']} shared doors")
-        row = dict(home=home_id, floor=a.floor, tag=(a.tag or ""), pose_model=a.pose_model, depth_model=a.depth_model,
+        row = dict(dataset=a.dataset, home=home_id, floor=floor_id, config=a.config, tag=(a.tag or ""), pose_model=a.pose_model, depth_model=a.depth_model,
                    connectivity=a.connectivity, completion=a.completion,
                    noise_deg=a.noise_deg, noise_m=a.noise_m, pose_rmse_m=round(p_rmse, 3), rot_err_deg=round(p_rot, 2),
                    n_rooms=len(rooms_map), n_eval=0,
@@ -360,9 +362,9 @@ def main(a):
     # convention calibration from a SOLID GT room (render convention is global)
     r0 = list(rooms_map.values())[0][0]
     d0 = PRO_DEPTH.get_depth(fl, a.home, r0, H, W, model="gt_layout", mask_doors=False)
-    g0 = build_room_gaussians(_pano_rgb(a.home, r0, (H, W)), d0, build_poses[r0],
+    g0 = build_room_gaussians(_pano_rgb(fl, a.home, r0, (H, W)), d0, build_poses[r0],
                               stride=a.stride, max_depth=a.max_depth, scale_mult=a.scale_mult)
-    hflip, vflip = calibrate_render(g0, _pano_rgb(a.home, r0, (H, W)), render_poses[r0], a.fov, min(a.size, 256), device)
+    hflip, vflip = calibrate_render(g0, _pano_rgb(fl, a.home, r0, (H, W)), render_poses[r0], a.fov, min(a.size, 256), device)
     lp = _LPIPS(device)
 
     # ---------- METRICS: held-out novel view (floor from 1 pano/room, score the rest) ----------
@@ -375,7 +377,7 @@ def main(a):
         room = fl.panos[star]["room"]; ri = eroom_ids.index(room)
         keep = {ri} | {eroom_ids.index(r) for r in adj.get(room, set()) if r in eroom_ids}
         sub = _subset(ef, eridx, keep)
-        real = _pano_rgb(a.home, star, (H, W))
+        real = _pano_rgb(fl, a.home, star, (H, W))
         for y in np.linspace(0, 360, a.yaws, endpoint=False):
             prgb, alpha = render_view(sub, render_poses[star], hflip, vflip, y, a.fov, a.size, device)
             gt = panoproj.e2p(real, y, 0, a.fov, (a.size, a.size)); m = alpha > a.alpha_thr
@@ -393,7 +395,7 @@ def main(a):
     print(f"[floor] door consistency: gap {door['door_gap_m']} m (max {door['door_gap_max_m']}) over {door['n_doors']} shared doors")
 
     # ---------- append one row to the master results.csv ----------
-    row = dict(home=home_id, floor=a.floor, tag=(a.tag or ""), pose_model=a.pose_model, depth_model=a.depth_model,
+    row = dict(dataset=a.dataset, home=home_id, floor=floor_id, config=a.config, tag=(a.tag or ""), pose_model=a.pose_model, depth_model=a.depth_model,
                connectivity=a.connectivity, completion=a.completion,
                noise_deg=a.noise_deg, noise_m=a.noise_m, pose_rmse_m=round(p_rmse, 3), rot_err_deg=round(p_rot, 2),
                n_rooms=len(rooms_map), n_eval=min(len(extras), a.max_eval), **metrics, **door)
@@ -457,6 +459,9 @@ def _walkthrough(full, fridx, froom_ids, adj, fl, rooms_map, render_poses, hflip
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", required=True); ap.add_argument("--floor", default="floor_01")
+    ap.add_argument("--dataset", default="zind", choices=["zind", "structured3d"])
+    ap.add_argument("--config", default="full", choices=["empty", "simple", "full"],
+                    help="Structured3D furniture configuration (ignored for ZInD)")
     ap.add_argument("--tag", default="")
     # --- swappable blocks ---
     ap.add_argument("--metrics_only", action="store_true",
